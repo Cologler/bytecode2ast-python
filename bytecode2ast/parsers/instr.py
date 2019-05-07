@@ -57,6 +57,9 @@ class CodeState:
         self._ast_stack = []
         self._load_stack = []
 
+    def __repr__(self):
+        return f'a({self._ast_stack!r}), l({self._load_stack!r})'
+
     def copy(self):
         ''' copy a `CodeState` '''
         state = CodeState()
@@ -446,18 +449,21 @@ def on_instr_load(reader: CodeReader, state: CodeState, instr: dis.Instruction):
 @op('STORE_FAST', 125)
 def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     value = state.pop()
-    targets = [
-        ast.Name(
+    if isinstance(value, ast.stmt):
+        node = value
+    else:
+        targets = [
+            ast.Name(
+                lineno=reader.get_lineno(),
+                id=instr.argval,
+                ctx=ast.Store()
+            )
+        ]
+        node = ast.Assign(
             lineno=reader.get_lineno(),
-            id=instr.argval,
-            ctx=ast.Store()
+            targets=targets,
+            value=value,
         )
-    ]
-    node = ast.Assign(
-        lineno=reader.get_lineno(),
-        targets=targets,
-        value=value,
-    )
     state.store(node)
 
 @op('POP_BLOCK', 87)
@@ -602,11 +608,32 @@ def on_instr_build_tuple_unpack_with_call(reader: CodeReader, state: CodeState, 
 @op('MAKE_FUNCTION', 132)
 def on_instr_make_function(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     code, name = state.pop_seq(2)
-    print(state._load_stack); exit()
-    co_code = code.value
-    print('co_code_vars:')
-    for name in dir(co_code):
-        if name[0] == '_':
-            continue
-        print(f'  {name}: {getattr(co_code, name)}')
-    breakpoint()
+    code = code.value # unpack
+
+    closure     = state.pop() if instr.argval & 8 else None
+    annotations = state.pop() if instr.argval & 4 else None
+    kwdefaults  = state.pop() if instr.argval & 2 else None
+    defaults    = state.pop() if instr.argval & 1 else None
+
+    if annotations or closure:
+        raise NotImplementedError
+
+    from .func_def import from_code
+
+    func_def = from_code(code)
+
+    assert len(func_def.args.defaults) == 0
+    if defaults:
+        for el in defaults.elts:
+            func_def.args.defaults.append(_get_ast_value(reader, el))
+
+    assert len(func_def.args.kw_defaults) == 0
+    if kwdefaults:
+        # k should be ast.Str
+        kwdefaults_map = dict((k.s, v) for (k, v) in zip(kwdefaults.keys, kwdefaults.values))
+        for kwarg in func_def.args.kwonlyargs:
+            func_def.args.kw_defaults.append(
+                kwdefaults_map.get(kwarg.arg)
+            )
+
+    state.push(func_def)

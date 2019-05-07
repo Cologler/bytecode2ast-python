@@ -55,3 +55,10 @@ def test_call_func_generic_args_unpack():
         iter(*a, **b)
 
     assert_func(func)
+
+def test_func_dynamic_def():
+    def func():
+        def f():
+            pass
+
+    # TODO: unable to test eq ?
