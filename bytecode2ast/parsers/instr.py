@@ -19,6 +19,10 @@ class CodeReader:
     def __bool__(self):
         return bool(self._instructions)
 
+    @property
+    def co_consts(self):
+        return self._co_consts
+
     def get_instrs_count(self) -> int:
         return len(self._instructions)
 
@@ -127,6 +131,7 @@ def walk(reader: CodeReader, state: CodeState):
         instr = reader.pop()
         handler = get_instr_handler(instr)
         handler(reader, state, instr)
+    return state
 
 def walk_until_count(reader: CodeReader, state: CodeState, count: int):
     ''' walk reader until handled count of instrs '''
@@ -135,6 +140,7 @@ def walk_until_count(reader: CodeReader, state: CodeState, count: int):
         instr = reader.pop()
         handler = get_instr_handler(instr)
         handler(reader, state, instr)
+    return state
 
 def walk_until_scoped_count(reader: CodeReader, state: CodeState, count: int):
     ''' walk reader until handled count of instrs in current scope. '''
@@ -144,6 +150,7 @@ def walk_until_scoped_count(reader: CodeReader, state: CodeState, count: int):
         instr = reader.pop()
         handler = get_instr_handler(instr)
         handler(reader, state, instr)
+    return state
 
 def walk_until_offset(reader: CodeReader, state: CodeState, offset):
     ''' walk reader until come to the offset '''
@@ -151,6 +158,7 @@ def walk_until_offset(reader: CodeReader, state: CodeState, offset):
         instr = reader.pop()
         handler = get_instr_handler(instr)
         handler(reader, state, instr)
+    return state
 
 def walk_until_opcodes(reader: CodeReader, state: CodeState, *opcodes):
     ''' walk reader until visit some opcodes '''
@@ -158,31 +166,49 @@ def walk_until_opcodes(reader: CodeReader, state: CodeState, *opcodes):
         instr = reader.pop()
         handler = get_instr_handler(instr)
         handler(reader, state, instr)
+    return state
 
-def _get_ast_value(reader, value):
+def _get_ast_value(reader, value, ctx_cls=None):
+    ctx = None if ctx_cls is None else ctx_cls()
+
     if value is None or value is True or value is False:
         return ast.NameConstant(
             value,
-            lineno=reader.get_lineno()
+            lineno=reader.get_lineno(),
+            ctx=ctx
         )
-    elif isinstance(value, (int, float)):
-        return ast.Num(
+
+    if isinstance(value, (int, float, str)):
+        if isinstance(value, (int, float)):
+            cls = ast.Num
+        elif isinstance(value, str):
+            cls = ast.Str
+
+        return cls(
             value,
-            lineno=reader.get_lineno()
+            lineno=reader.get_lineno(),
+            ctx=ctx
         )
-    elif isinstance(value, (str, )):
-        return ast.Str(
-            value,
-            lineno=reader.get_lineno()
-        )
-    elif isinstance(value, tuple):
-        return ast.Tuple(
+
+    if isinstance(value, (tuple, list, str)):
+        if isinstance(value, tuple):
+            cls = ast.Tuple
+        elif isinstance(value, list):
+            cls = ast.List
+        elif isinstance(value, set):
+            cls = ast.Set
+
+        return cls(
             elts=list(value),
             lineno=reader.get_lineno(),
-            ctx=ast.Load()
+            ctx=ctx
         )
-    else:
-        raise NotImplementedError(value)
+
+    return ast.Constant(
+        value,
+        lineno=reader.get_lineno(),
+        ctx=ctx
+    )
 
 @op('POP_TOP', 1)
 def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
@@ -299,7 +325,7 @@ def on_instr_return_value(reader: CodeReader, state: CodeState, instr: dis.Instr
 
 @op('LOAD_CONST', 100)
 def on_instr_load_const(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    state.push(_get_ast_value(reader, instr.argval))
+    state.push(_get_ast_value(reader, instr.argval, ctx_cls=ast.Load))
 
 @op('BUILD_TUPLE', 102)
 def on_instr_build_tuple(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -312,12 +338,9 @@ def on_instr_build_tuple(reader: CodeReader, state: CodeState, instr: dis.Instru
 
 @op('BUILD_MAP', 105)
 def on_instr_build_map(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-
     keys = []
     values = []
-    count = instr.argval
-    while count > 0:
-        count -= 1
+    for _ in range(instr.argval):
         k, v = state.pop_seq(2)
         keys.append(k)
         values.append(v)
@@ -332,6 +355,18 @@ def on_instr_build_map(reader: CodeReader, state: CodeState, instr: dis.Instruct
         node.lineno = keys[0].lineno
     else:
         node.lineno =  reader.get_lineno()
+    state.push(node)
+
+@op('BUILD_CONST_KEY_MAP', 156)
+def on_instr_build_const_key_map(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    keys = state.pop()
+    values = state.pop_seq(instr.argval)
+    lineno = min([reader.get_lineno(), keys.lineno] + [v.lineno for v in values])
+    node = ast.Dict(
+        lineno=lineno,
+        keys=[_get_ast_value(reader, k) for k in keys.elts],
+        values=values
+    )
     state.push(node)
 
 _OP_CLS = {
@@ -563,3 +598,15 @@ def on_instr_build_tuple_unpack_with_call(reader: CodeReader, state: CodeState, 
         else:
             raise NotImplementedError(arg)
     state.push(args)
+
+@op('MAKE_FUNCTION', 132)
+def on_instr_make_function(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    code, name = state.pop_seq(2)
+    print(state._load_stack); exit()
+    co_code = code.value
+    print('co_code_vars:')
+    for name in dir(co_code):
+        if name[0] == '_':
+            continue
+        print(f'  {name}: {getattr(co_code, name)}')
+    breakpoint()

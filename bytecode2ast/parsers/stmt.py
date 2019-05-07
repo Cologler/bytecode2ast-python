@@ -121,9 +121,6 @@ class LoopBlockParser(IBlockParser):
 
 class StatementsParser(IBlockParser):
 
-    def __init__(self, instructions: list):
-        super().__init__(CodeReader(instructions.copy()))
-
     def parse(self):
         walk(self._reader, self._state)
         return self._state.get_value()

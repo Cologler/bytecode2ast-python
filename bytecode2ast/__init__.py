@@ -5,11 +5,11 @@
 #
 # ----------
 
-from .parsers.func_def import FunctionDefParser
+from .parsers.func_def import from_func
 
 def parse_func(func):
     ''' return a `ast.FunctionDef` object from a function '''
-    return FunctionDefParser(func).parse()
+    return from_func(func)
 
 def create_module(ast_objs: list):
     import ast
