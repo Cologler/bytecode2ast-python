@@ -10,6 +10,7 @@ import ast
 import inspect
 
 from .instr import CodeReader
+from .utils import reduce_as_pass
 
 
 class FunctionDefParser:
@@ -80,7 +81,8 @@ class FunctionDefParser:
         instructions = list(dis.Bytecode(self._code))
         reader = CodeReader(instructions)
         body_parser = StatementsParser(reader)
-        return body_parser.parse()
+        body = body_parser.parse()
+        return reduce_as_pass(body)
 
     def _parse_decorator_list(self):
         return []

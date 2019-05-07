@@ -5,7 +5,7 @@
 #
 # ----------
 
-from utils import assert_func
+from utils import *
 
 def test_if():
     def func():

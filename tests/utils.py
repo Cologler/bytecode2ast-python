@@ -31,4 +31,5 @@ def assert_func(func):
     assert instrs from `func.__code__` should equals to
     instrs which compiled from bytecode2ast
     '''
+
     assert get_instrs(func) == get_instrs_from_b2a(func)
