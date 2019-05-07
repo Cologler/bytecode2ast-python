@@ -25,8 +25,20 @@ def test_store_false():
 
     assert_func(func)
 
+def test_store_pack():
+    def func():
+        a = b, c
+
+    assert_func(func)
+
 def test_store_unpack():
     def func():
         a, b = c
+
+    assert_func(func)
+
+def test_store_multi():
+    def func():
+        a, b = c, d
 
     assert_func(func)

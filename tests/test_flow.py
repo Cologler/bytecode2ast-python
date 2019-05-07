@@ -35,7 +35,7 @@ def test_white():
 
 def test_for():
     return # TODO
-    
+
     def func():
         for z in []:
             if c == 12:

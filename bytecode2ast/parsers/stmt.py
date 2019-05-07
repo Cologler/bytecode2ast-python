@@ -11,7 +11,7 @@ import dis
 from functools import partial
 from itertools import repeat
 
-from .instr import CodeReader, CodeState, get_instr_handler
+from .instr import CodeReader, CodeState, get_instr_handler, walk
 
 
 def not_support(instr):
@@ -56,17 +56,6 @@ class IBlockParser(abc.ABC):
         handler = get_instr_handler(instr)
         if handler:
             return partial(handler, self._reader, self._state)
-
-        method_name = '_on_instr_' + instr.opname.lower()
-        method = getattr(self, method_name, None)
-        if method:
-            return method
-
-        proc_func = _OPCODE_MAP.get(instr.opcode)
-        if proc_func:
-            return partial(proc_func, self)
-
-        return not_support
 
 
 class OffsetedBlockParser(IBlockParser):
@@ -136,6 +125,5 @@ class StatementsParser(IBlockParser):
         super().__init__(CodeReader(instructions.copy()))
 
     def parse(self):
-        while self._reader:
-            self._proc_next_instr()
-        return self.get_body()
+        walk(self._reader, self._state)
+        return self._state.get_value()

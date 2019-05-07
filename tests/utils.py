@@ -17,7 +17,7 @@ def get_func_from_exec(code, name):
     return g[name]
 
 def get_instrs(func):
-    return tuple(dis.Bytecode(func))
+    return list(dis.Bytecode(func))
 
 def get_instrs_from_b2a(func):
     name = func.__name__

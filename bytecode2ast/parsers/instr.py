@@ -10,6 +10,12 @@ import dis
 import enum
 
 
+class Q(enum.IntEnum):
+    UNKNOWN = enum.auto()
+    LOAD = enum.auto()
+    STORE = enum.auto()
+
+
 class CodeReader:
     def __init__(self, instructions):
         # reversed will fast
@@ -18,6 +24,9 @@ class CodeReader:
 
     def __bool__(self):
         return bool(self._instructions)
+
+    def get_instrs_count(self) -> int:
+        return len(self._instructions)
 
     def get_lineno(self) -> int:
         return self._lineno
@@ -49,24 +58,66 @@ class CodeState:
     def __init__(self):
         self._stack = []
 
-    def push(self, node):
-        self._stack.append(node)
+    def copy(self, count=None):
+        state = CodeState()
+        if count is None:
+            state._stack = self._stack.copy()
+        else:
+            state._stack = self._stack[-count:]
+        return state
+
+    def copy_and_pop(self, count=None):
+        state = CodeState()
+        if count is None:
+            state._stack = self._stack.copy()
+            self._stack = []
+        else:
+            state._stack = self._stack[-count:]
+            self._stack = self._stack[:-count]
+        return state
+
+    def push(self, node, q: Q = Q.UNKNOWN):
+        self._stack.append(
+            (q, node)
+        )
+
+    def push_store(self, node):
+        return self.push(node, Q.STORE)
+
+    def push_load(self, node):
+        return self.push(node, Q.LOAD)
 
     def pop(self, count: int):
         ''' return a list of node. '''
         if count > 0:
             items = self._stack[-count:]
             self._stack = self._stack[0:-count]
-            return items
+            return [z[1] for z in items]
         else:
             return []
 
     def pop_one(self):
         ''' return one node. '''
-        return self._stack.pop()
+        return self._stack.pop()[1]
 
-    def get_value(self):
-        return self._stack.copy()
+    def _pop_one_not(self, q: Q):
+        for i in range(len(self._stack) - 1, -1, -1):
+            if self._stack[i][0] != q:
+                return self._stack.pop(i)[1]
+        raise IndexError
+
+    def pop_one_load(self):
+        return self._pop_one_not(Q.STORE)
+
+    def pop_one_store(self):
+        return self._pop_one_not(Q.LOAD)
+
+    def swap(self, count: int):
+        ''' swap top nodes on stack '''
+        self._stack[-count:] = reversed(self._stack[-count:])
+
+    def get_value(self) -> list:
+        return [z[1] for z in self._stack]
 
 
 _OPCODE_MAP = {}
@@ -89,19 +140,33 @@ def get_instr_handler(instr):
     except KeyError:
         raise NotImplementedError(instr)
 
-def walk(reader, state):
+def walk(reader: CodeReader, state: CodeState):
+    ''' walk reader until end '''
     while reader:
         instr = reader.pop()
         handler = get_instr_handler(instr)
         handler(reader, state, instr)
+        continue
+        print(instr)
+        print(state._stack)
 
-def walk_until_offset(reader, state, offset):
+def walk_until_count(reader: CodeReader, state: CodeState, count):
+    ''' walk reader until handle count '''
+    end_count = reader.get_instrs_count() - count
+    while reader.get_instrs_count() > end_count:
+        instr = reader.pop()
+        handler = get_instr_handler(instr)
+        handler(reader, state, instr)
+
+def walk_until_offset(reader: CodeReader, state: CodeState, offset):
+    ''' walk reader until come to offset '''
     while reader.peek().offset != offset:
         instr = reader.pop()
         handler = get_instr_handler(instr)
         handler(reader, state, instr)
 
-def walk_until_opcodes(reader, state, *opcodes):
+def walk_until_opcodes(reader: CodeReader, state: CodeState, *opcodes):
+    ''' walk reader until visit some opcodes '''
     while reader.peek().opcode not in opcodes:
         instr = reader.pop()
         handler = get_instr_handler(instr)
@@ -135,6 +200,40 @@ def _get_ast_value(reader, value):
 @op('POP_TOP', 1)
 def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
     pass
+
+@op('ROT_TWO', 2)
+def on_instr_rot(reader: CodeReader, state: CodeState, instr):
+    lineno = reader.get_lineno()
+    sub_state = state.copy_and_pop(2)
+    sub_state.swap(2)
+    walk_until_count(reader, sub_state, 2)
+    ns = sub_state.get_value()
+    assert all(isinstance(z, ast.Assign) for z in ns)
+    lineno = min(lineno, min(z.lineno for z in ns))
+    target = ast.Tuple(
+        lineno=lineno,
+        elts=[z.targets[0] for z in ns],
+        ctx=ast.Store()
+    )
+    value = ast.Tuple(
+        lineno=lineno,
+        elts=[z.value for z in ns],
+        ctx=ast.Load()
+    )
+    state.push_store(
+        ast.Assign(
+            lineno=lineno,
+            targets=[target],
+            value=value
+        )
+    )
+
+@op('DUP_TOP', 4)
+def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
+    raise NotImplementedError
+    lineno = reader.get_lineno()
+    walk_until_count(reader, state, 1)
+    assert reader.peek().opname == 'STORE_FAST'
 
 @op('BINARY_MULTIPLY', 20, op=ast.Mult)
 @op('BINARY_MODULO', 22, op=ast.Mod)
@@ -253,13 +352,13 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
 @op('LOAD_GLOBAL', 116)
 @op('LOAD_FAST', 124)
 def on_instr_load(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    state.push(
+    state.push_load(
         ast.Name(id=instr.argval, ctx=ast.Load(), lineno=reader.get_lineno())
     )
 
 @op('STORE_FAST', 125)
 def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    value = state.pop_one()
+    value = state.pop_one_load()
     targets = [
         ast.Name(
             lineno=reader.get_lineno(),
@@ -272,7 +371,7 @@ def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction)
         targets=targets,
         value=value,
     )
-    state.push(node)
+    state.push_store(node)
 
 @op('POP_BLOCK', 87)
 def on_instr_pop_block(reader: CodeReader, state: CodeState, instr: dis.Instruction):
