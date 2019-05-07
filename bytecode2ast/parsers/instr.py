@@ -186,7 +186,13 @@ def _get_ast_value(reader, value):
 
 @op('POP_TOP', 1)
 def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
-    pass
+    node = state.pop()
+    if isinstance(node, ast.Compare):
+        node = ast.Expr(
+            lineno=node.lineno,
+            value=node
+        )
+    state.add_node(node)
 
 @op('ROT_TWO', 2)
 def on_instr_rot(reader: CodeReader, state: CodeState, instr):
@@ -317,14 +323,25 @@ def on_instr_build_map(reader: CodeReader, state: CodeState, instr: dis.Instruct
         node.lineno =  reader.get_lineno()
     state.push(node)
 
+_OP_CLS = {
+    '==': ast.Eq
+}
+
 @op('COMPARE_OP', 107)
 def on_instr_compare_op(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    opcls = _OP_CLS.get(instr.argval)
+    if not opcls:
+        raise NotImplementedError(instr)
+
+    linenos = [reader.get_lineno()]
     if instr.argval == '==':
         left, right = state.pop_seq(2)
-        node = ast.Compare(left=left, ops=[ast.Eq()], comparators=[right])
-        state.push(node)
-    else:
-        raise NotImplementedError(instr)
+        linenos.append(left.lineno)
+        linenos.append(right.lineno)
+        node = ast.Compare(left=left, ops=[opcls()], comparators=[right])
+    lineno = min(linenos)
+    node.lineno = lineno
+    state.push(node)
 
 @op('POP_JUMP_IF_FALSE', 114)
 def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -402,7 +419,7 @@ def on_instr_jump_absolute(reader: CodeReader, state: CodeState, instr: dis.Inst
 
 def _make_func_call(reader: CodeReader, state: CodeState, instr: dis.Instruction, args, kwargs):
     func = state.pop()
-    state.add_node(
+    state.push(
         ast.Expr(
             lineno=reader.get_lineno(),
             value=ast.Call(
