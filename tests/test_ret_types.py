@@ -30,3 +30,15 @@ def test_return_int():
         return 10
 
     assert_func(func)
+
+def test_return_str():
+    def func():
+        return '10'
+
+    assert_func(func)
+
+def test_return_bytes():
+    def func():
+        return b'10'
+
+    assert_func(func)
