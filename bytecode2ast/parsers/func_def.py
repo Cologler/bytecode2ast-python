@@ -81,7 +81,11 @@ class FunctionDefParser:
         instructions = list(dis.Bytecode(self._code))
         reader = CodeReader(instructions)
         state = CodeState()
-        walk(reader, state)
+        try:
+            walk(reader, state)
+        except NotImplementedError:
+            breakpoint()
+            raise
         body = state.get_value()
         return reduce_as_pass(body)
 
@@ -92,11 +96,36 @@ class FunctionDefParser:
         return None
 
 
+class LambdaParser(FunctionDefParser):
+    def parse(self):
+        func_def = ast.Lambda(
+            lineno=self._parse_lineno(),
+            args=self._parse_args(),
+            body=self._parse_body()
+        )
+        ast.fix_missing_locations(func_def)
+        return func_def
+
+    def _parse_body(self):
+        body: list = super()._parse_body()
+        assert len(body) == 1
+        body = body[0]
+        if isinstance(body, ast.Return):
+            return body.value
+        return body
+
+
 def from_code(code):
-    ''' create a ast.FunctionDef from a code object. '''
-    return FunctionDefParser(code).parse()
+    ''' return a `ast.FunctionDef` or `ast.Lambda` from a code object. '''
+    if code.co_name == '<lambda>':
+        return LambdaParser(code).parse()
+    else:
+        return FunctionDefParser(code).parse()
 
 
 def from_func(func):
-    ''' create a ast.FunctionDef from a function. '''
-    return FunctionDefParser(func.__code__, func).parse()
+    ''' return a ast.FunctionDef from a function. '''
+    if func.__code__.co_name == '<lambda>':
+        return LambdaParser(func.__code__, func).parse()
+    else:
+        return FunctionDefParser(func.__code__, func).parse()

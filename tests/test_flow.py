@@ -5,7 +5,7 @@
 #
 # ----------
 
-from utils import *
+from utils import get_instrs_from_b2a, get_instrs
 
 def test_if():
     def func():
@@ -18,7 +18,7 @@ def test_if():
                 pass
         return None
 
-    assert_func(func)
+    assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_white():
     return # TODO
@@ -31,7 +31,7 @@ def test_white():
         else:
             return 12
 
-    assert_func(func)
+    assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_for():
     return # TODO
@@ -44,5 +44,5 @@ def test_for():
         else:
             return 12
 
-    assert_func(func)
+    assert get_instrs(func) == get_instrs_from_b2a(func)
 

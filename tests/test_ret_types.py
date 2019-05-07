@@ -5,40 +5,40 @@
 #
 # ----------
 
-from utils import assert_func
+from utils import get_instrs_from_b2a, get_instrs
 
 def test_return_none():
     def func():
         return None
 
-    assert_func(func)
+    assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_return_true():
     def func():
         return True
 
-    assert_func(func)
+    assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_return_false():
     def func():
         return False
 
-    assert_func(func)
+    assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_return_int():
     def func():
         return 10
 
-    assert_func(func)
+    assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_return_str():
     def func():
         return '10'
 
-    assert_func(func)
+    assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_return_bytes():
     def func():
         return b'10'
 
-    assert_func(func)
+    assert get_instrs(func) == get_instrs_from_b2a(func)

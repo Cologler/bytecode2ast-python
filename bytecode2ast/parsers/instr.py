@@ -213,15 +213,27 @@ def _get_ast_value(reader, value, ctx_cls=None):
         ctx=ctx
     )
 
-@op('POP_TOP', 1)
-def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
-    node = state.pop()
+def _ensure_stmt(node):
     if not isinstance(node, ast.stmt):
         # for node like `CompareOp` or `UnaryOp` or more
         node = ast.Expr(
             lineno=node.lineno,
             value=node
         )
+    return node
+
+def _ensure_expr(node):
+    if not isinstance(node, ast.expr):
+        # for node like `CompareOp` or `UnaryOp` or more
+        node = ast.Expr(
+            lineno=node.lineno,
+            value=node
+        )
+    return node
+
+@op('POP_TOP', 1)
+def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
+    node = _ensure_stmt(state.pop())
     state.add_node(node)
 
 @op('ROT_TWO', 2)
@@ -637,3 +649,25 @@ def on_instr_make_function(reader: CodeReader, state: CodeState, instr: dis.Inst
             )
 
     state.push(func_def)
+
+@op('LOAD_METHOD', 160)
+def on_instr_load_method(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    target = state.pop()
+    node = ast.Attribute(
+        lineno=reader.get_lineno(),
+        value=target,
+        attr='__call__',
+        ctx=ast.Load(),
+    )
+    state.push(node)
+
+@op('CALL_METHOD', 161)
+def on_instr_call_method(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    assert instr.argval == 0
+    node = ast.Call(
+        lineno=reader.get_lineno(),
+        func=state.pop(),
+        args=[],
+        keywords=[],
+    )
+    state.push(node)
