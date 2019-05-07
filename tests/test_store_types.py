@@ -43,6 +43,12 @@ def test_store_multi_assign():
 
     assert_func(func)
 
+def test_store_multi_assign_reverse():
+    def func():
+        x, y = y, x
+
+    assert_func(func)
+
 def test_store_chain_assign():
     def func():
         x = y = z = i = j = k
