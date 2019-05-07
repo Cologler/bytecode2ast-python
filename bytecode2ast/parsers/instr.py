@@ -187,7 +187,8 @@ def _get_ast_value(reader, value):
 @op('POP_TOP', 1)
 def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
     node = state.pop()
-    if isinstance(node, ast.Compare):
+    if not isinstance(node, ast.stmt):
+        # for node like `CompareOp` or `UnaryOp` or more
         node = ast.Expr(
             lineno=node.lineno,
             value=node
@@ -258,6 +259,16 @@ def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
         )
     )
 
+@op('UNARY_NOT', 12)
+def on_instr_unary_not(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    node = ast.UnaryOp(
+        lineno=reader.get_lineno(),
+        col_offset=4,
+        op=ast.Not(),
+        operand=state.pop()
+    )
+    state.push(node)
+
 @op('BINARY_MULTIPLY', 20, op=ast.Mult)
 @op('BINARY_MODULO', 22, op=ast.Mod)
 @op('BINARY_ADD', 23, op=ast.Add)
@@ -324,7 +335,13 @@ def on_instr_build_map(reader: CodeReader, state: CodeState, instr: dis.Instruct
     state.push(node)
 
 _OP_CLS = {
-    '==': ast.Eq
+    '==': ast.Eq,
+    '>': ast.Gt,
+    '<': ast.Lt,
+    '>=': ast.GtE,
+    '<=': ast.LtE,
+    'is': ast.Is,
+    'is not': ast.IsNot,
 }
 
 @op('COMPARE_OP', 107)
@@ -334,11 +351,12 @@ def on_instr_compare_op(reader: CodeReader, state: CodeState, instr: dis.Instruc
         raise NotImplementedError(instr)
 
     linenos = [reader.get_lineno()]
-    if instr.argval == '==':
-        left, right = state.pop_seq(2)
-        linenos.append(left.lineno)
-        linenos.append(right.lineno)
-        node = ast.Compare(left=left, ops=[opcls()], comparators=[right])
+
+    left, right = state.pop_seq(2)
+    linenos.append(left.lineno)
+    linenos.append(right.lineno)
+    node = ast.Compare(left=left, ops=[opcls()], comparators=[right])
+
     lineno = min(linenos)
     node.lineno = lineno
     state.push(node)
