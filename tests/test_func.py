@@ -62,3 +62,8 @@ def test_func_dynamic_def():
             pass
 
     # TODO: unable to test eq ?
+
+def test_simple_lambda():
+    func = lambda: {"x": 4}
+
+    assert_func(func)
