@@ -7,6 +7,7 @@
 
 import ast
 import dis
+import itertools
 
 
 class CodeReader:
@@ -83,6 +84,10 @@ class CodeState:
         else:
             return []
 
+    def dup_top(self):
+        ''' repeat top once. '''
+        self._load_stack.append(self._load_stack[-1])
+
     def store(self, node):
         ''' store a node '''
         self.add_node(node)
@@ -92,6 +97,7 @@ class CodeState:
         self._ast_stack.append(node)
 
     def get_value(self) -> list:
+        assert not self._load_stack
         return self._ast_stack.copy()
 
 
@@ -193,6 +199,8 @@ def on_instr_rot(reader: CodeReader, state: CodeState, instr):
         sub_state.push(x)
 
     walk_until_count(reader, sub_state, 2)
+
+    # handle values
     ns = sub_state.get_value()
     assert all(isinstance(z, ast.Assign) for z in ns)
     lineno = min(lineno, min(z.lineno for z in ns))
@@ -217,13 +225,32 @@ def on_instr_rot(reader: CodeReader, state: CodeState, instr):
 @op('DUP_TOP', 4)
 def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
     lineno = reader.get_lineno()
-    sub_state = state.copy_and_pop(1)
-    sub_state.dup_top()
-    walk_until_scoped_count(reader, sub_state, 2)
-    state.push_from_state(sub_state)
-    print(state._stack)
 
-    #assert reader.peek().opname == 'STORE_FAST'
+    # make sub
+    sub_state = state.copy_with_load(1)
+    state.pop()
+
+    # dup top
+    sub_state.dup_top()
+
+    # walk
+    walk_until_scoped_count(reader, sub_state, 2)
+
+    # handle values
+    ns = sub_state.get_value()
+    assert all(isinstance(n, ast.Assign) for n in ns)
+    assign_value = ns[0].value
+    assert all(n.value is assign_value for n in ns)
+    lineno = min(lineno, min(z.lineno for z in ns))
+    targets = list(itertools.chain(*[n.targets for n in ns]))
+    value = assign_value
+    state.add_node(
+        ast.Assign(
+            lineno=lineno,
+            targets=targets,
+            value=value
+        )
+    )
 
 @op('BINARY_MULTIPLY', 20, op=ast.Mult)
 @op('BINARY_MODULO', 22, op=ast.Mod)

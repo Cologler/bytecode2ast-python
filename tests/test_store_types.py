@@ -37,8 +37,14 @@ def test_store_unpack():
 
     assert_func(func)
 
-def test_store_multi():
+def test_store_multi_assign():
     def func():
         a, b = c, d
+
+    assert_func(func)
+
+def test_store_chain_assign():
+    def func():
+        x = y = z = i = j = k
 
     assert_func(func)
