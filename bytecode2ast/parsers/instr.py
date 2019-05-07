@@ -7,13 +7,6 @@
 
 import ast
 import dis
-import enum
-
-
-class Q(enum.IntEnum):
-    UNKNOWN = enum.auto()
-    LOAD = enum.auto()
-    STORE = enum.auto()
 
 
 class CodeReader:
@@ -56,68 +49,50 @@ class CodeReader:
 
 class CodeState:
     def __init__(self):
-        self._stack = []
+        self._ast_stack = []
+        self._load_stack = []
 
-    def copy(self, count=None):
+    def copy(self):
+        ''' copy a `CodeState` '''
         state = CodeState()
-        if count is None:
-            state._stack = self._stack.copy()
-        else:
-            state._stack = self._stack[-count:]
+        state._load_stack = self._load_stack.copy()
+        state._ast_stack = self._ast_stack.copy()
         return state
 
-    def copy_and_pop(self, count=None):
+    def copy_with_load(self, load_count):
+        ''' copy a `CodeState` with empty ast stack. '''
         state = CodeState()
-        if count is None:
-            state._stack = self._stack.copy()
-            self._stack = []
-        else:
-            state._stack = self._stack[-count:]
-            self._stack = self._stack[:-count]
+        state._load_stack = self._load_stack[-load_count:]
         return state
 
-    def push(self, node, q: Q = Q.UNKNOWN):
-        self._stack.append(
-            (q, node)
-        )
+    def push(self, node):
+        ''' push a node into load stack. '''
+        self._load_stack.append(node)
 
-    def push_store(self, node):
-        return self.push(node, Q.STORE)
+    def pop(self):
+        ''' pop the top node from load stack. '''
+        return self._load_stack.pop()
 
-    def push_load(self, node):
-        return self.push(node, Q.LOAD)
-
-    def pop(self, count: int):
-        ''' return a list of node. '''
+    def pop_seq(self, count: int) -> list:
+        ''' pop a list of top nodes from load stack. '''
+        assert count >= 0
         if count > 0:
-            items = self._stack[-count:]
-            self._stack = self._stack[0:-count]
-            return [z[1] for z in items]
+            items = self._load_stack[-count:]
+            self._load_stack = self._load_stack[0:-count]
+            return items
         else:
             return []
 
-    def pop_one(self):
-        ''' return one node. '''
-        return self._stack.pop()[1]
+    def store(self, node):
+        ''' store a node '''
+        self.add_node(node)
 
-    def _pop_one_not(self, q: Q):
-        for i in range(len(self._stack) - 1, -1, -1):
-            if self._stack[i][0] != q:
-                return self._stack.pop(i)[1]
-        raise IndexError
-
-    def pop_one_load(self):
-        return self._pop_one_not(Q.STORE)
-
-    def pop_one_store(self):
-        return self._pop_one_not(Q.LOAD)
-
-    def swap(self, count: int):
-        ''' swap top nodes on stack '''
-        self._stack[-count:] = reversed(self._stack[-count:])
+    def add_node(self, node):
+        ''' add a final node into ast stmt tree '''
+        self._ast_stack.append(node)
 
     def get_value(self) -> list:
-        return [z[1] for z in self._stack]
+        return self._ast_stack.copy()
 
 
 _OPCODE_MAP = {}
@@ -141,25 +116,31 @@ def get_instr_handler(instr):
         raise NotImplementedError(instr)
 
 def walk(reader: CodeReader, state: CodeState):
-    ''' walk reader until end '''
+    ''' walk reader until reader end '''
     while reader:
         instr = reader.pop()
         handler = get_instr_handler(instr)
         handler(reader, state, instr)
-        continue
-        print(instr)
-        print(state._stack)
 
-def walk_until_count(reader: CodeReader, state: CodeState, count):
-    ''' walk reader until handle count '''
+def walk_until_count(reader: CodeReader, state: CodeState, count: int):
+    ''' walk reader until handled count of instrs '''
     end_count = reader.get_instrs_count() - count
     while reader.get_instrs_count() > end_count:
         instr = reader.pop()
         handler = get_instr_handler(instr)
         handler(reader, state, instr)
 
+def walk_until_scoped_count(reader: CodeReader, state: CodeState, count: int):
+    ''' walk reader until handled count of instrs in current scope. '''
+    assert count > 0
+    while count:
+        count -= 1
+        instr = reader.pop()
+        handler = get_instr_handler(instr)
+        handler(reader, state, instr)
+
 def walk_until_offset(reader: CodeReader, state: CodeState, offset):
-    ''' walk reader until come to offset '''
+    ''' walk reader until come to the offset '''
     while reader.peek().offset != offset:
         instr = reader.pop()
         handler = get_instr_handler(instr)
@@ -204,8 +185,13 @@ def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
 @op('ROT_TWO', 2)
 def on_instr_rot(reader: CodeReader, state: CodeState, instr):
     lineno = reader.get_lineno()
-    sub_state = state.copy_and_pop(2)
-    sub_state.swap(2)
+    # copy
+    sub_state = state.copy_with_load(2)
+    state.pop_seq(2)
+    # rot_two
+    for x in reversed(sub_state.pop_seq(2)):
+        sub_state.push(x)
+
     walk_until_count(reader, sub_state, 2)
     ns = sub_state.get_value()
     assert all(isinstance(z, ast.Assign) for z in ns)
@@ -220,7 +206,7 @@ def on_instr_rot(reader: CodeReader, state: CodeState, instr):
         elts=[z.value for z in ns],
         ctx=ast.Load()
     )
-    state.push_store(
+    state.add_node(
         ast.Assign(
             lineno=lineno,
             targets=[target],
@@ -230,10 +216,14 @@ def on_instr_rot(reader: CodeReader, state: CodeState, instr):
 
 @op('DUP_TOP', 4)
 def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
-    raise NotImplementedError
     lineno = reader.get_lineno()
-    walk_until_count(reader, state, 1)
-    assert reader.peek().opname == 'STORE_FAST'
+    sub_state = state.copy_and_pop(1)
+    sub_state.dup_top()
+    walk_until_scoped_count(reader, sub_state, 2)
+    state.push_from_state(sub_state)
+    print(state._stack)
+
+    #assert reader.peek().opname == 'STORE_FAST'
 
 @op('BINARY_MULTIPLY', 20, op=ast.Mult)
 @op('BINARY_MODULO', 22, op=ast.Mod)
@@ -241,7 +231,7 @@ def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
 @op('BINARY_SUBTRACT', 24, op=ast.Sub)
 @op('BINARY_TRUE_DIVIDE', 27, op=ast.Div)
 def on_instr_binary_op(reader: CodeReader, state: CodeState, instr, op):
-    l, r = state.pop(2)
+    l, r = state.pop_seq(2)
     node = ast.BinOp(
         lineno=reader.get_lineno(),
         left=l, right=r,
@@ -259,9 +249,9 @@ def on_instr_break_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
 def on_instr_return_value(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     node = ast.Return(
         lineno=reader.get_lineno(),
-        value=state.pop_one()
+        value=state.pop()
     )
-    state.push(node)
+    state.add_node(node)
 
 @op('LOAD_CONST', 100)
 def on_instr_load_const(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -271,7 +261,7 @@ def on_instr_load_const(reader: CodeReader, state: CodeState, instr: dis.Instruc
 def on_instr_build_tuple(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     node = ast.Tuple(
         lineno=reader.get_lineno(),
-        elts=list(state.pop(instr.arg)),
+        elts=state.pop_seq(instr.arg),
         ctx=ast.Load()
     )
     state.push(node)
@@ -284,7 +274,7 @@ def on_instr_build_map(reader: CodeReader, state: CodeState, instr: dis.Instruct
     count = instr.argval
     while count > 0:
         count -= 1
-        k, v = state.pop(2)
+        k, v = state.pop_seq(2)
         keys.append(k)
         values.append(v)
     keys.reverse()
@@ -303,7 +293,7 @@ def on_instr_build_map(reader: CodeReader, state: CodeState, instr: dis.Instruct
 @op('COMPARE_OP', 107)
 def on_instr_compare_op(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     if instr.argval == '==':
-        left, right = state.pop(2)
+        left, right = state.pop_seq(2)
         node = ast.Compare(left=left, ops=[ast.Eq()], comparators=[right])
         state.push(node)
     else:
@@ -313,7 +303,7 @@ def on_instr_compare_op(reader: CodeReader, state: CodeState, instr: dis.Instruc
 def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     node = ast.If(
         lineno=reader.get_lineno(),
-        test=state.pop_one()
+        test=state.pop()
     )
     # body
     body_state = CodeState()
@@ -328,7 +318,7 @@ def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.
         node.orelse = orelse_state.get_value()
     else:
         node.orelse = []
-    state.push(node)
+    state.add_node(node)
 
 @op('SETUP_LOOP', 120)
 def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -352,13 +342,13 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
 @op('LOAD_GLOBAL', 116)
 @op('LOAD_FAST', 124)
 def on_instr_load(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    state.push_load(
+    state.push(
         ast.Name(id=instr.argval, ctx=ast.Load(), lineno=reader.get_lineno())
     )
 
 @op('STORE_FAST', 125)
 def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    value = state.pop_one_load()
+    value = state.pop()
     targets = [
         ast.Name(
             lineno=reader.get_lineno(),
@@ -371,7 +361,7 @@ def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction)
         targets=targets,
         value=value,
     )
-    state.push_store(node)
+    state.store(node)
 
 @op('POP_BLOCK', 87)
 def on_instr_pop_block(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -384,8 +374,8 @@ def on_instr_jump_absolute(reader: CodeReader, state: CodeState, instr: dis.Inst
     pass
 
 def _make_func_call(reader: CodeReader, state: CodeState, instr: dis.Instruction, args, kwargs):
-    func = state.pop_one()
-    state.push(
+    func = state.pop()
+    state.add_node(
         ast.Expr(
             lineno=reader.get_lineno(),
             value=ast.Call(
@@ -400,10 +390,10 @@ def _make_func_call(reader: CodeReader, state: CodeState, instr: dis.Instruction
 @op('CALL_FUNCTION', 131)
 def on_instr_call_function(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     if instr.opcode == 141:
-        kw_tuple = state.pop_one()
+        kw_tuple = state.pop()
         kw = kw_tuple.elts
 
-    args = state.pop(instr.argval)
+    args = state.pop_seq(instr.argval)
     keywords = []
     if instr.opcode == 141:
         keywords = [
@@ -415,10 +405,10 @@ def on_instr_call_function(reader: CodeReader, state: CodeState, instr: dis.Inst
 
 @op('CALL_FUNCTION_KW', 141)
 def on_instr_call_function_kw(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    kw_tuple = state.pop_one()
+    kw_tuple = state.pop()
     kw = kw_tuple.elts
 
-    args = state.pop(instr.argval)
+    args = state.pop_seq(instr.argval)
     kwargs = [
         ast.keyword(arg=n, value=v) for (n, v) in zip(kw, args[-len(kw):])
     ]
@@ -430,13 +420,13 @@ def on_instr_call_function_kw(reader: CodeReader, state: CodeState, instr: dis.I
 def on_instr_call_function_ex(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     assert instr.argval == 1
 
-    kw = state.pop_one()
+    kw = state.pop()
     if isinstance(kw, list): # make from `BUILD_MAP_UNPACK_WITH_CALL`
         kwargs = kw
     else:
         kwargs = [ast.keyword(arg=None, value=kw, lineno=reader.get_lineno())]
 
-    a = state.pop_one()
+    a = state.pop()
     if isinstance(a, list): # make from `BUILD_TUPLE_UNPACK_WITH_CALL`
         args = a
     else:
@@ -469,18 +459,18 @@ def _parse_instr_unpack_sequence(reader: CodeReader, state: CodeState, instr):
 @op('UNPACK_SEQUENCE', 92)
 def on_instr_unpack_sequence(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     target = _parse_instr_unpack_sequence(reader, state, instr)
-    value = state.pop_one()
+    value = state.pop()
     node = ast.Assign(
         lineno=reader.get_lineno(),
         targets=[target],
         value=value,
     )
-    state.push(node)
+    state.add_node(node)
 
 @op('BUILD_MAP_UNPACK_WITH_CALL', 151)
 def on_instr_build_map_unpack_with_call(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     kwargs = []
-    for arg in state.pop(instr.argval):
+    for arg in state.pop_seq(instr.argval):
         if isinstance(arg, ast.Name):
             kwargs.append(
                 ast.keyword(arg=None, value=arg)
@@ -497,7 +487,7 @@ def on_instr_build_map_unpack_with_call(reader: CodeReader, state: CodeState, in
 @op('BUILD_TUPLE_UNPACK_WITH_CALL', 158)
 def on_instr_build_tuple_unpack_with_call(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     args = []
-    for arg in state.pop(instr.argval):
+    for arg in state.pop_seq(instr.argval):
         if isinstance(arg, ast.Name):
             args.append(
                 ast.Starred(
