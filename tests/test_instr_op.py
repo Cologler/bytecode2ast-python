@@ -193,16 +193,14 @@ def test_binary_op_bit_xor_eq():
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_binary_op_logic_and():
-    return # TODO
     def func():
-        a and b
+        a and b and c and d
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_binary_op_logic_or():
-    return # TODO
     def func():
-        a or b
+        a or b or c or d
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 

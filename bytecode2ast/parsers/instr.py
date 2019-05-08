@@ -465,6 +465,34 @@ def on_instr_compare_op(reader: CodeReader, state: CodeState, instr: dis.Instruc
     node.lineno = lineno
     state.push(node)
 
+@op('JUMP_IF_FALSE_OR_POP', 111, op=ast.And)
+@op('JUMP_IF_TRUE_OR_POP', 112, op=ast.Or)
+def on_instr_bool_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
+    # logic and: `a and b`
+    lineno = reader.get_lineno()
+    first = state.pop()
+    walk_until_scoped_count(reader, state, 1)
+    second = state.pop()
+    node = ast.BoolOp(
+        lineno=lineno,
+        op=op,
+        values=[first, second]
+    )
+    state.push(node)
+
+def on_instr_jump_if_false_or_pop(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    # logic and: `a and b`
+    lineno = reader.get_lineno()
+    first = state.pop()
+    walk_until_scoped_count(reader, state, 1)
+    second = state.pop()
+    node = ast.BoolOp(
+        lineno=lineno,
+        op=ast.And(),
+        values=[first, second]
+    )
+    state.push(node)
+
 @op('POP_JUMP_IF_FALSE', 114)
 def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     node = ast.If(
