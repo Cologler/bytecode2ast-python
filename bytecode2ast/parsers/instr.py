@@ -15,13 +15,12 @@ CTX_STORE = ast.Store()
 
 def load(node):
     ''' set `node.ctx` to `ast.Load` and return it '''
-    assert isinstance(node, ast.Name)
     node.ctx = CTX_LOAD
     return node
 
 def store(node):
     ''' set `node.ctx` to `ast.Load` and return it '''
-    assert isinstance(node, ast.Name)
+    assert isinstance(node, ast.Name), node
     node.ctx = CTX_STORE
     return node
 
@@ -310,6 +309,7 @@ def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
 @op('UNARY_POSITIVE', 10, op=ast.UAdd)
 @op('UNARY_NEGATIVE', 11, op=ast.USub)
 @op('UNARY_NOT', 12, op=ast.Not)
+@op('UNARY_INVERT', 15, op=ast.Invert)
 def on_instr_unary_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
     node = ast.UnaryOp(
         lineno=reader.get_lineno(),
@@ -349,6 +349,21 @@ def on_instr_inplace_op(reader: CodeReader, state: CodeState, instr: dis.Instruc
         value=value
     )
     state.push(node)
+
+@op('BINARY_SUBSCR', 25)
+def on_instr_subscr(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    slice_value = state.pop()
+    target = state.pop()
+
+    if not isinstance(slice_value, ast.slice):
+        slice_value = ast.Index(value=slice_value)
+
+    node = ast.Subscript(
+        lineno=reader.get_lineno(),
+        value=target,
+        slice=slice_value
+    )
+    state.push(load(node))
 
 @op('BREAK_LOOP', 80)
 def on_instr_break_loop(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -540,6 +555,14 @@ def on_instr_call_function(reader: CodeReader, state: CodeState, instr: dis.Inst
         args = args[:-len(kw)]
 
     return _make_func_call(reader, state, instr, args, keywords)
+
+@op('BUILD_SLICE', 133)
+def on_instr_call_function(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    args = [None, None, None]
+    for i, v in enumerate(state.pop_seq(instr.argval)):
+        args[i] = v
+    node = ast.Slice(*args)
+    state.push(node)
 
 @op('CALL_FUNCTION_KW', 141)
 def on_instr_call_function_kw(reader: CodeReader, state: CodeState, instr: dis.Instruction):

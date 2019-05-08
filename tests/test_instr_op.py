@@ -36,6 +36,12 @@ def test_unary_op_negative():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
+def test_unary_op_inv():
+    def func():
+        ~a
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
 def test_unary_op_not():
     def func():
         not a
@@ -114,7 +120,27 @@ def test_binary_op_mod_eq():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
+def test_binary_op_and():
+    return # TODO
+    def func():
+        a and b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_or():
+    return # TODO
+    def func():
+        a or b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
 def test_compare_op_eq():
+    def func():
+        a == b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_compare_op_ne():
     def func():
         a == b
 
@@ -159,5 +185,41 @@ def test_compare_op_is_not():
 def test_compare_op_in():
     def func():
         a in b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_index():
+    def func():
+        a[b]
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_index_const():
+    def func():
+        a[1]
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_index_0():
+    def func():
+        a[:]
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_index_1():
+    def func():
+        a[x:]
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_index_2():
+    def func():
+        a[:x]
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_index_3():
+    def func():
+        a[x:y]
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
