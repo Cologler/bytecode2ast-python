@@ -5,7 +5,24 @@
 #
 # ----------
 
-from utils import get_instrs_from_b2a, get_instrs
+import dis
+
+from bytecode2ast import parse_func, create_module
+
+def get_func_from_exec(code, name):
+    g = {}
+    exec(code, g, g)
+    return g[name]
+
+def get_instrs(func):
+    return list(dis.Bytecode(func))
+
+def get_instrs_from_b2a(func):
+    name = func.__name__
+    b2a_ast = parse_func(func)
+    module = create_module([b2a_ast])
+    new_func = get_func_from_exec(compile(module, '<string>', 'exec'), name)
+    return get_instrs(new_func)
 
 def test_if():
     def func():
@@ -46,3 +63,30 @@ def test_for():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
+def test_with():
+    def func():
+        with a:
+            r = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_with_multi():
+    def func():
+        with a, b, c, d():
+            r = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_with_var():
+    def func():
+        with a as b:
+            r = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_with_var_multi():
+    def func():
+        with a as b, c() as d:
+            r = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)

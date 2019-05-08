@@ -8,7 +8,12 @@
 import ast
 import dis
 import itertools
+import enum
 
+class Scope(enum.IntEnum):
+    NONE = enum.auto()
+    LOOP = enum.auto()
+    WITH = enum.auto()
 
 CTX_LOAD = ast.Load()
 CTX_STORE = ast.Store()
@@ -86,9 +91,14 @@ class CodeReader:
 
 
 class CodeState:
-    def __init__(self):
+    def __init__(self, *, scope=Scope.NONE):
         self._ast_stack = []
         self._load_stack = []
+        self._scope = scope
+
+    @property
+    def scope(self):
+        return self._scope
 
     def __repr__(self):
         return f'a({self._ast_stack!r}), l({self._load_stack!r})'
@@ -615,7 +625,8 @@ def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction)
 
 @op('POP_BLOCK', 87)
 def on_instr_pop_block(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    # end of loop block, just ignore
+    # end of loop block, ignore
+    # end of with block, ignore it
     pass
 
 @op('JUMP_ABSOLUTE', 113)
@@ -843,3 +854,54 @@ def on_instr_call_method(reader: CodeReader, state: CodeState, instr: dis.Instru
         keywords=[],
     )
     state.push(node)
+
+@op('SETUP_WITH', 143)
+def on_instr_setup_with(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    lineno = reader.get_lineno()
+
+    ctx = state.pop()
+    # unpack
+    if isinstance(ctx, ast.Expr):
+        ctx = ctx.value
+
+    ctx_state = CodeState(scope=Scope.WITH)
+    ctx_state.push(ctx)
+    walk_until_offset(reader, ctx_state, instr.argval)
+
+    # pop noop
+    reader.pop_assert(81) # WITH_CLEANUP_START
+    reader.pop_assert(82) # WITH_CLEANUP_FINISH
+    reader.pop_assert(88) # END_FINALLY
+    ctx_state.pop() # py emit a 'LOAD_CONST None' and of with stmt
+
+    with_item = ast.withitem(
+        context_expr=load(ctx),
+        optional_vars=None
+    )
+
+    ctx_body = ctx_state.get_value()
+    ctx_var = ctx_body[0]
+
+    if isinstance(ctx_var, ast.Expr):
+        ctx_var = ctx_var.value
+
+    if ctx_var is ctx:
+        # if ctx_var is ctx, mean `with ctx: pass`
+        # just ignore it
+        pass
+    else:
+        if isinstance(ctx_var, ast.Assign):
+            assert len(ctx_var.targets) == 1
+            with_item.optional_vars = ctx_var.targets[0]
+        else:
+            raise NotImplementedError(ctx_var)
+
+    with_body = ctx_body[1:]
+
+    with_stmt = ast.With(
+        lineno=lineno,
+        items=[with_item],
+        body=with_body
+    )
+
+    state.add_node(with_stmt)
