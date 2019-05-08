@@ -60,14 +60,20 @@ def test_import_from_mutil():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_import_as():
+def test_import_from_as():
     def func():
         from a import b as c
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_import_as_multi():
+def test_import_from_as_multi():
     def func():
         from a import b as c, e as f
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_rel_import_from():
+    def func():
+        from ...a import b as c
 
     assert get_instrs(func) == get_instrs_from_b2a(func)

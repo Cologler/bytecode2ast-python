@@ -730,12 +730,13 @@ def on_instr_import_name(reader: CodeReader, state: CodeState, instr: dis.Instru
     lineno = reader.get_lineno()
 
     # pop unused
-    _a, _b = state.pop_seq(2)
+    level, _b = state.pop_seq(2)
 
     node = ast.Import(
         lineno=lineno,
         names=[ast.alias(name=instr.argval)]
     )
+    node.level = level.n # add level for rel import
     state.push(node)
 
 @op('IMPORT_FROM', 109)
@@ -748,7 +749,7 @@ def on_instr_import_from(reader: CodeReader, state: CodeState, instr: dis.Instru
             lineno=reader.get_lineno(),
             module=alias.name,
             names=[],
-            level=0
+            level=node.level
         )
     node.names.append(ast.alias(name=instr.argval))
     state.push(node)
