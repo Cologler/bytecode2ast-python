@@ -40,7 +40,6 @@ def load(node):
 
 def store(node):
     ''' set `node.ctx` to `ast.Load` and return it '''
-    assert isinstance(node, ast.Name), node
     node.ctx = CTX_STORE
     return node
 
@@ -395,6 +394,28 @@ def on_instr_subscr(reader: CodeReader, state: CodeState, instr: dis.Instruction
         slice=slice_value
     )
     state.push(load(node))
+
+@op('STORE_SUBSCR', 60)
+def on_instr_store_subscr(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    slice_value = state.pop()
+    target = state.pop()
+    value = state.pop()
+
+    if not isinstance(slice_value, ast.slice):
+        slice_value = ast.Index(value=slice_value)
+
+    subscr_node = ast.Subscript(
+        lineno=reader.get_lineno(),
+        value=target,
+        slice=slice_value
+    )
+    node = ast.Assign(
+        lineno=reader.get_lineno(),
+        value=value,
+        targets=[store(subscr_node)]
+    )
+    state.store(node)
+
 
 @op('BREAK_LOOP', 80)
 def on_instr_break_loop(reader: CodeReader, state: CodeState, instr: dis.Instruction):

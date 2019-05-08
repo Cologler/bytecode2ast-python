@@ -293,3 +293,51 @@ def test_op_index_3():
         a[x:y]
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_slice_0():
+    def func():
+        TOS = TOS[:]
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_slice_1():
+    def func():
+        TOS = TOS1[TOS:]
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_slice_2():
+    def func():
+        TOS = TOS1[:TOS]
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_slice_3():
+    def func():
+        TOS = TOS2[TOS1:TOS]
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_store_slice_0():
+    def func():
+        TOS[:] = TOS1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_store_slice_1():
+    def func():
+        TOS1[TOS:] = TOS2
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_store_slice_2():
+    def func():
+        TOS1[:TOS] = TOS2
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_op_store_slice_3():
+    def func():
+        TOS2[TOS1:TOS] = TOS3
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
