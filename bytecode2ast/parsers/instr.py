@@ -193,7 +193,7 @@ def _get_ast_value(reader, value, ctx_cls=None):
             ctx=ctx
         )
 
-    if isinstance(value, (tuple, list, str)):
+    if isinstance(value, (tuple, list, set)):
         if isinstance(value, tuple):
             cls = ast.Tuple
         elif isinstance(value, list):
