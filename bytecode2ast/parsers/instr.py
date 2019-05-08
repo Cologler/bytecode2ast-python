@@ -13,6 +13,26 @@ import itertools
 CTX_LOAD = ast.Load()
 CTX_STORE = ast.Store()
 
+OP_AND = ast.And()
+OP_OR = ast.Or()
+OP_FLOORDIV = ast.FloorDiv()
+OP_DIV = ast.Div()
+OP_ADD = ast.Add()
+OP_SUB = ast.Sub()
+OP_MULT = ast.Mult()
+OP_MOD = ast.Mod()
+OP_POW = ast.Pow()
+OP_LSHIFT = ast.LShift()
+OP_RSHIFT = ast.RShift()
+OP_BITAND = ast.BitAnd()
+OP_BITXOR = ast.BitXor()
+OP_BITOR = ast.BitOr()
+OP_UADD = ast.UAdd()
+OP_USUB = ast.USub()
+OP_NOT = ast.Not()
+OP_INVERT = ast.Invert()
+
+
 def load(node):
     ''' set `node.ctx` to `ast.Load` and return it '''
     node.ctx = CTX_LOAD
@@ -126,8 +146,7 @@ _OPCODE_MAP = {}
 def op(opname, opcode, **kwargs):
     def wrapper(func):
         def func_wrapper(reader, state, instr: dis.Instruction):
-            real_kwargs = dict((z[0], z[1]()) for z in kwargs.items())
-            func(reader, state, instr, **real_kwargs)
+            func(reader, state, instr, **kwargs)
         assert opcode not in _OPCODE_MAP
         _OPCODE_MAP[(opname, opcode)] = func_wrapper
         return func
@@ -306,10 +325,10 @@ def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
         )
     )
 
-@op('UNARY_POSITIVE', 10, op=ast.UAdd)
-@op('UNARY_NEGATIVE', 11, op=ast.USub)
-@op('UNARY_NOT', 12, op=ast.Not)
-@op('UNARY_INVERT', 15, op=ast.Invert)
+@op('UNARY_POSITIVE', 10, op=OP_UADD)
+@op('UNARY_NEGATIVE', 11, op=OP_USUB)
+@op('UNARY_NOT', 12, op=OP_NOT)
+@op('UNARY_INVERT', 15, op=OP_INVERT)
 def on_instr_unary_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
     node = ast.UnaryOp(
         lineno=reader.get_lineno(),
@@ -319,18 +338,18 @@ def on_instr_unary_op(reader: CodeReader, state: CodeState, instr: dis.Instructi
     )
     state.push(node)
 
-@op('BINARY_POWER', 19, op=ast.Pow)
-@op('BINARY_MULTIPLY', 20, op=ast.Mult)
-@op('BINARY_MODULO', 22, op=ast.Mod)
-@op('BINARY_ADD', 23, op=ast.Add)
-@op('BINARY_SUBTRACT', 24, op=ast.Sub)
-@op('BINARY_FLOOR_DIVIDE', 26, op=ast.FloorDiv)
-@op('BINARY_TRUE_DIVIDE', 27, op=ast.Div)
-@op('BINARY_LSHIFT', 62, op=ast.LShift)
-@op('BINARY_RSHIFT', 63, op=ast.RShift)
-@op('BINARY_AND', 64, op=ast.BitAnd)
-@op('BINARY_XOR', 65, op=ast.BitXor)
-@op('BINARY_OR', 66, op=ast.BitOr)
+@op('BINARY_POWER', 19, op=OP_POW)
+@op('BINARY_MULTIPLY', 20, op=OP_MULT)
+@op('BINARY_MODULO', 22, op=OP_MOD)
+@op('BINARY_ADD', 23, op=OP_ADD)
+@op('BINARY_SUBTRACT', 24, op=OP_SUB)
+@op('BINARY_FLOOR_DIVIDE', 26, op=OP_FLOORDIV)
+@op('BINARY_TRUE_DIVIDE', 27, op=OP_DIV)
+@op('BINARY_LSHIFT', 62, op=OP_LSHIFT)
+@op('BINARY_RSHIFT', 63, op=OP_RSHIFT)
+@op('BINARY_AND', 64, op=OP_BITAND)
+@op('BINARY_XOR', 65, op=OP_BITXOR)
+@op('BINARY_OR', 66, op=OP_BITOR)
 def on_instr_binary_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
     l, r = state.pop_seq(2)
     node = ast.BinOp(
@@ -340,18 +359,18 @@ def on_instr_binary_op(reader: CodeReader, state: CodeState, instr: dis.Instruct
     )
     state.push(node)
 
-@op('INPLACE_FLOOR_DIVIDE', 28, op=ast.FloorDiv)
-@op('INPLACE_TRUE_DIVIDE', 29, op=ast.Div)
-@op('INPLACE_ADD', 55, op=ast.Add)
-@op('INPLACE_SUBTRACT', 56, op=ast.Sub)
-@op('INPLACE_MULTIPLY', 57, op=ast.Mult)
-@op('INPLACE_MODULO', 59, op=ast.Mod)
-@op('INPLACE_POWER', 67, op=ast.Pow)
-@op('INPLACE_LSHIFT', 75, op=ast.LShift)
-@op('INPLACE_RSHIFT', 76, op=ast.RShift)
-@op('INPLACE_AND', 77, op=ast.BitAnd)
-@op('INPLACE_XOR', 78, op=ast.BitXor)
-@op('INPLACE_OR', 79, op=ast.BitOr)
+@op('INPLACE_FLOOR_DIVIDE', 28, op=OP_FLOORDIV)
+@op('INPLACE_TRUE_DIVIDE', 29, op=OP_DIV)
+@op('INPLACE_ADD', 55, op=OP_ADD)
+@op('INPLACE_SUBTRACT', 56, op=OP_SUB)
+@op('INPLACE_MULTIPLY', 57, op=OP_MULT)
+@op('INPLACE_MODULO', 59, op=OP_MOD)
+@op('INPLACE_POWER', 67, op=OP_POW)
+@op('INPLACE_LSHIFT', 75, op=OP_LSHIFT)
+@op('INPLACE_RSHIFT', 76, op=OP_RSHIFT)
+@op('INPLACE_AND', 77, op=OP_BITAND)
+@op('INPLACE_XOR', 78, op=OP_BITXOR)
+@op('INPLACE_OR', 79, op=OP_BITOR)
 def on_instr_inplace_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
     target, value = state.pop_seq(2)
     node = ast.AugAssign(
@@ -465,8 +484,8 @@ def on_instr_compare_op(reader: CodeReader, state: CodeState, instr: dis.Instruc
     node.lineno = lineno
     state.push(node)
 
-@op('JUMP_IF_FALSE_OR_POP', 111, op=ast.And)
-@op('JUMP_IF_TRUE_OR_POP', 112, op=ast.Or)
+@op('JUMP_IF_FALSE_OR_POP', 111, op=OP_AND)
+@op('JUMP_IF_TRUE_OR_POP', 112, op=OP_OR)
 def on_instr_bool_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
     # logic and: `a and b`
     lineno = reader.get_lineno()
