@@ -47,3 +47,27 @@ def test_import_as_multi():
         import a as b, c, d as k
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_import_from():
+    def func():
+        from a import b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_import_from_mutil():
+    def func():
+        from a import b, c
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_import_as():
+    def func():
+        from a import b as c
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_import_as_multi():
+    def func():
+        from a import b as c, e as f
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)

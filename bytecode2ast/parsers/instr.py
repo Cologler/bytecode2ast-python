@@ -583,8 +583,24 @@ def on_instr_load(reader: CodeReader, state: CodeState, instr: dis.Instruction):
 @op('STORE_FAST', 125)
 def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     value = state.pop()
-    if isinstance(value, ast.stmt):
+
+    if isinstance(value, ast.ImportFrom):
+        value: ast.ImportFrom = value
+        value.names[-1].asname = instr.argval
+        # should not store ImportFrom
+        # ImportFrom will store in instr POP_TOP
+        state.push(value)
+        return
+
+    elif isinstance(value, ast.Import):
+        value: ast.Import = value
+        for n in value.names:
+            n.asname = instr.argval
         node = value
+
+    elif isinstance(value, ast.stmt):
+        node = value
+
     else:
         targets = [store(
             ast.Name(lineno=reader.get_lineno(), id=instr.argval)
@@ -594,6 +610,7 @@ def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction)
             targets=targets,
             value=value,
         )
+
     state.store(node)
 
 @op('POP_BLOCK', 87)
@@ -714,33 +731,27 @@ def on_instr_import_name(reader: CodeReader, state: CodeState, instr: dis.Instru
 
     # pop unused
     _a, _b = state.pop_seq(2)
-    assert isinstance(_a, ast.Num) and _a.n == 0
-    assert isinstance(_b, ast.NameConstant) and _b.value is None
-
-    # capture store name
-    fake_store_value = object()
-    sub_state = CodeState()
-    sub_state.push(fake_store_value)
-    walk_until_scoped_count(reader, sub_state, 1)
-    store_target, = sub_state.get_value()
-    assert isinstance(store_target, ast.Assign)
-    assert store_target.value is fake_store_value
-    sotre_name, = store_target.targets
-    assert isinstance(sotre_name, ast.Name)
-
-    names = [
-        ast.alias(name=instr.argval, asname=sotre_name.id)
-    ]
 
     node = ast.Import(
         lineno=lineno,
-        names=names
+        names=[ast.alias(name=instr.argval)]
     )
-    state.add_node(node)
+    state.push(node)
 
 @op('IMPORT_FROM', 109)
 def on_instr_import_from(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    pass
+    node = state.pop()
+    if isinstance(node, ast.Import):
+        assert len(node.names) == 1
+        alias: ast.alias = node.names[0]
+        node = ast.ImportFrom(
+            lineno=reader.get_lineno(),
+            module=alias.name,
+            names=[],
+            level=0
+        )
+    node.names.append(ast.alias(name=instr.argval))
+    state.push(node)
 
 @op('BUILD_MAP_UNPACK_WITH_CALL', 151)
 def on_instr_build_map_unpack_with_call(reader: CodeReader, state: CodeState, instr: dis.Instruction):
