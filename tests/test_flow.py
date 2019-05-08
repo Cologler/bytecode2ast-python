@@ -38,8 +38,6 @@ def test_if():
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_white():
-    return # TODO
-
     def func():
         while a and b:
             if c == 12:
@@ -51,15 +49,25 @@ def test_white():
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
 def test_for():
-    return # TODO
-
     def func():
         for z in []:
-            if c == 12:
-                break
-            v = 13
+            a = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_for_else():
+    def func():
+        for z in []:
+            a = 1
         else:
-            return 12
+            a = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_for_unpack():
+    def func():
+        for a, b in []:
+            break
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
