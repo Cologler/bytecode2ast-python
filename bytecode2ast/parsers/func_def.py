@@ -81,11 +81,7 @@ class FunctionDefParser:
         instructions = list(dis.Bytecode(self._code))
         reader = CodeReader(instructions)
         state = CodeState()
-        try:
-            walk(reader, state)
-        except NotImplementedError:
-            breakpoint()
-            raise
+        walk(reader, state)
         body = state.get_value()
         return reduce_as_pass(body)
 

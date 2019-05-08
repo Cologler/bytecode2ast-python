@@ -222,15 +222,6 @@ def _ensure_stmt(node):
         )
     return node
 
-def _ensure_expr(node):
-    if not isinstance(node, ast.expr):
-        # for node like `CompareOp` or `UnaryOp` or more
-        node = ast.Expr(
-            lineno=node.lineno,
-            value=node
-        )
-    return node
-
 @op('POP_TOP', 1)
 def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
     node = _ensure_stmt(state.pop())
@@ -392,6 +383,7 @@ _OP_CLS = {
     '<=': ast.LtE,
     'is': ast.Is,
     'is not': ast.IsNot,
+    'in': ast.In
 }
 
 @op('COMPARE_OP', 107)

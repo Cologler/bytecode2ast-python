@@ -5,52 +5,75 @@
 #
 # ----------
 
-from utils import get_instrs_from_b2a, get_instrs
+import dis
 
-def test_op_eq():
+from bytecode2ast import parse_func, create_module
+
+def get_func_from_exec(code, name):
+    g = {}
+    exec(code, g, g)
+    return g[name]
+
+def get_instrs(func):
+    return list(dis.Bytecode(func))
+
+def get_instrs_from_b2a(func):
+    name = func.__name__
+    b2a_ast = parse_func(func)
+    module = create_module([b2a_ast])
+    new_func = get_func_from_exec(compile(module, '<string>', 'exec'), name)
+    return get_instrs(new_func)
+
+def test_compare_op_eq():
     def func():
         a == b
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_op_gt():
+def test_compare_op_gt():
     def func():
         a > b
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_op_lt():
+def test_compare_op_lt():
     def func():
         a < b
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_op_ge():
+def test_compare_op_ge():
     def func():
         a >= b
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_op_le():
+def test_compare_op_le():
     def func():
         a <= b
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_op_not():
+def test_compare_op_not():
     def func():
         not a
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_op_is():
+def test_compare_op_is():
     def func():
         a is b
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_op_is_not():
+def test_compare_op_is_not():
     def func():
         a is not b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_compare_op_in():
+    def func():
+        a in b
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
