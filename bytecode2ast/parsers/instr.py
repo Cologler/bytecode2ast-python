@@ -10,6 +10,21 @@ import dis
 import itertools
 
 
+CTX_LOAD = ast.Load()
+CTX_STORE = ast.Store()
+
+def load(node):
+    ''' set `node.ctx` to `ast.Load` and return it '''
+    assert isinstance(node, ast.Name)
+    node.ctx = CTX_LOAD
+    return node
+
+def store(node):
+    ''' set `node.ctx` to `ast.Load` and return it '''
+    assert isinstance(node, ast.Name)
+    node.ctx = CTX_STORE
+    return node
+
 class CodeReader:
     def __init__(self, instructions):
         # reversed will fast
@@ -123,10 +138,11 @@ def get_instr_handler(instr):
     '''
     the return function `(reader, state, instr) -> None`
     '''
+    k = (instr.opname, instr.opcode)
     try:
-        return _OPCODE_MAP[(instr.opname, instr.opcode)]
+        return _OPCODE_MAP[k]
     except KeyError:
-        raise NotImplementedError(instr)
+        raise NotImplementedError(k, instr)
 
 def walk(reader: CodeReader, state: CodeState):
     ''' walk reader until reader end '''
@@ -246,12 +262,12 @@ def on_instr_rot(reader: CodeReader, state: CodeState, instr):
     target = ast.Tuple(
         lineno=lineno,
         elts=[z.targets[0] for z in ns],
-        ctx=ast.Store()
+        ctx=CTX_STORE
     )
     value = ast.Tuple(
         lineno=lineno,
         elts=[z.value for z in ns],
-        ctx=ast.Load()
+        ctx=CTX_LOAD
     )
     state.add_node(
         ast.Assign(
@@ -291,12 +307,14 @@ def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
         )
     )
 
-@op('UNARY_NOT', 12)
-def on_instr_unary_not(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+@op('UNARY_POSITIVE', 10, op=ast.UAdd)
+@op('UNARY_NEGATIVE', 11, op=ast.USub)
+@op('UNARY_NOT', 12, op=ast.Not)
+def on_instr_unary_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
     node = ast.UnaryOp(
         lineno=reader.get_lineno(),
         col_offset=4,
-        op=ast.Not(),
+        op=op,
         operand=state.pop()
     )
     state.push(node)
@@ -305,13 +323,30 @@ def on_instr_unary_not(reader: CodeReader, state: CodeState, instr: dis.Instruct
 @op('BINARY_MODULO', 22, op=ast.Mod)
 @op('BINARY_ADD', 23, op=ast.Add)
 @op('BINARY_SUBTRACT', 24, op=ast.Sub)
+@op('BINARY_FLOOR_DIVIDE', 26, op=ast.FloorDiv)
 @op('BINARY_TRUE_DIVIDE', 27, op=ast.Div)
-def on_instr_binary_op(reader: CodeReader, state: CodeState, instr, op):
+def on_instr_binary_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
     l, r = state.pop_seq(2)
     node = ast.BinOp(
         lineno=reader.get_lineno(),
         left=l, right=r,
         op=op
+    )
+    state.push(node)
+
+@op('INPLACE_FLOOR_DIVIDE', 28, op=ast.FloorDiv)
+@op('INPLACE_TRUE_DIVIDE', 29, op=ast.Div)
+@op('INPLACE_ADD', 55, op=ast.Add)
+@op('INPLACE_SUBTRACT', 56, op=ast.Sub)
+@op('INPLACE_MULTIPLY', 57, op=ast.Mult)
+@op('INPLACE_MODULO', 59, op=ast.Mod)
+def on_instr_inplace_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
+    target, value = state.pop_seq(2)
+    node = ast.AugAssign(
+        lineno=reader.get_lineno(),
+        target=store(target),
+        op=op,
+        value=value
     )
     state.push(node)
 
@@ -338,7 +373,7 @@ def on_instr_build_tuple(reader: CodeReader, state: CodeState, instr: dis.Instru
     node = ast.Tuple(
         lineno=reader.get_lineno(),
         elts=state.pop_seq(instr.arg),
-        ctx=ast.Load()
+        ctx=CTX_LOAD
     )
     state.push(node)
 
@@ -447,7 +482,7 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
 @op('LOAD_FAST', 124)
 def on_instr_load(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     state.push(
-        ast.Name(id=instr.argval, ctx=ast.Load(), lineno=reader.get_lineno())
+        load(ast.Name(id=instr.argval, lineno=reader.get_lineno()))
     )
 
 @op('STORE_FAST', 125)
@@ -456,13 +491,9 @@ def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction)
     if isinstance(value, ast.stmt):
         node = value
     else:
-        targets = [
-            ast.Name(
-                lineno=reader.get_lineno(),
-                id=instr.argval,
-                ctx=ast.Store()
-            )
-        ]
+        targets = [store(
+            ast.Name(lineno=reader.get_lineno(), id=instr.argval)
+        )]
         node = ast.Assign(
             lineno=reader.get_lineno(),
             targets=targets,
@@ -540,7 +571,7 @@ def on_instr_call_function_ex(reader: CodeReader, state: CodeState, instr: dis.I
         args = [ast.Starred(
             lineno=reader.get_lineno(),
             value=a,
-            ctx=ast.Load()
+            ctx=CTX_LOAD
         )]
 
     return _make_func_call(reader, state, instr, args, kwargs)
@@ -550,13 +581,13 @@ def _get_ast_store_name(reader: CodeReader):
     return ast.Name(
         lineno=reader.get_lineno(),
         id=instr.argval,
-        ctx=ast.Store()
+        ctx=CTX_STORE
     )
 
 def _parse_instr_unpack_sequence(reader: CodeReader, state: CodeState, instr):
     target_tuple = ast.Tuple(
         lineno=reader.get_lineno(),
-        ctx=ast.Store(),
+        ctx=CTX_STORE,
         elts = []
     )
     for _ in range(instr.argval):
@@ -600,7 +631,7 @@ def on_instr_build_tuple_unpack_with_call(reader: CodeReader, state: CodeState, 
                 ast.Starred(
                     lineno=arg.lineno,
                     value=arg,
-                    ctx=ast.Load()
+                    ctx=CTX_LOAD
                 )
             )
         elif isinstance(arg, ast.Tuple):
@@ -649,7 +680,7 @@ def on_instr_load_method(reader: CodeReader, state: CodeState, instr: dis.Instru
         lineno=reader.get_lineno(),
         value=target,
         attr='__call__',
-        ctx=ast.Load(),
+        ctx=CTX_LOAD,
     )
     state.push(node)
 
