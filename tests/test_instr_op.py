@@ -120,14 +120,86 @@ def test_binary_op_mod_eq():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_binary_op_and():
+def test_binary_op_power():
+    def func():
+        a ** b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_power_eq():
+    def func():
+        a **= b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_lshift():
+    def func():
+        a << b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_lshift_eq():
+    def func():
+        a <<= b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_rshift():
+    def func():
+        a >> b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_rshift_eq():
+    def func():
+        a >>= b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_bit_and():
+    def func():
+        a & b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_bit_and_eq():
+    def func():
+        a &= b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_bit_or():
+    def func():
+        a | b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_bit_or_eq():
+    def func():
+        a |= b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_bit_xor():
+    def func():
+        a ^ b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_bit_xor_eq():
+    def func():
+        a ^= b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_binary_op_logic_and():
     return # TODO
     def func():
         a and b
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_binary_op_or():
+def test_binary_op_logic_or():
     return # TODO
     def func():
         a or b

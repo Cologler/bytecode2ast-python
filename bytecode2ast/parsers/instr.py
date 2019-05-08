@@ -319,12 +319,18 @@ def on_instr_unary_op(reader: CodeReader, state: CodeState, instr: dis.Instructi
     )
     state.push(node)
 
+@op('BINARY_POWER', 19, op=ast.Pow)
 @op('BINARY_MULTIPLY', 20, op=ast.Mult)
 @op('BINARY_MODULO', 22, op=ast.Mod)
 @op('BINARY_ADD', 23, op=ast.Add)
 @op('BINARY_SUBTRACT', 24, op=ast.Sub)
 @op('BINARY_FLOOR_DIVIDE', 26, op=ast.FloorDiv)
 @op('BINARY_TRUE_DIVIDE', 27, op=ast.Div)
+@op('BINARY_LSHIFT', 62, op=ast.LShift)
+@op('BINARY_RSHIFT', 63, op=ast.RShift)
+@op('BINARY_AND', 64, op=ast.BitAnd)
+@op('BINARY_XOR', 65, op=ast.BitXor)
+@op('BINARY_OR', 66, op=ast.BitOr)
 def on_instr_binary_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
     l, r = state.pop_seq(2)
     node = ast.BinOp(
@@ -340,6 +346,12 @@ def on_instr_binary_op(reader: CodeReader, state: CodeState, instr: dis.Instruct
 @op('INPLACE_SUBTRACT', 56, op=ast.Sub)
 @op('INPLACE_MULTIPLY', 57, op=ast.Mult)
 @op('INPLACE_MODULO', 59, op=ast.Mod)
+@op('INPLACE_POWER', 67, op=ast.Pow)
+@op('INPLACE_LSHIFT', 75, op=ast.LShift)
+@op('INPLACE_RSHIFT', 76, op=ast.RShift)
+@op('INPLACE_AND', 77, op=ast.BitAnd)
+@op('INPLACE_XOR', 78, op=ast.BitXor)
+@op('INPLACE_OR', 79, op=ast.BitOr)
 def on_instr_inplace_op(reader: CodeReader, state: CodeState, instr: dis.Instruction, op):
     target, value = state.pop_seq(2)
     node = ast.AugAssign(
