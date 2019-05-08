@@ -708,6 +708,40 @@ def on_instr_unpack_sequence(reader: CodeReader, state: CodeState, instr: dis.In
     )
     state.add_node(node)
 
+@op('IMPORT_NAME', 108)
+def on_instr_import_name(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    lineno = reader.get_lineno()
+
+    # pop unused
+    _a, _b = state.pop_seq(2)
+    assert isinstance(_a, ast.Num) and _a.n == 0
+    assert isinstance(_b, ast.NameConstant) and _b.value is None
+
+    # capture store name
+    fake_store_value = object()
+    sub_state = CodeState()
+    sub_state.push(fake_store_value)
+    walk_until_scoped_count(reader, sub_state, 1)
+    store_target, = sub_state.get_value()
+    assert isinstance(store_target, ast.Assign)
+    assert store_target.value is fake_store_value
+    sotre_name, = store_target.targets
+    assert isinstance(sotre_name, ast.Name)
+
+    names = [
+        ast.alias(name=instr.argval, asname=sotre_name.id)
+    ]
+
+    node = ast.Import(
+        lineno=lineno,
+        names=names
+    )
+    state.add_node(node)
+
+@op('IMPORT_FROM', 109)
+def on_instr_import_from(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    pass
+
 @op('BUILD_MAP_UNPACK_WITH_CALL', 151)
 def on_instr_build_map_unpack_with_call(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     kwargs = []
