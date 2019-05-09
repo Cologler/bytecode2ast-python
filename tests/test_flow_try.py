@@ -172,6 +172,23 @@ def test_try_except_multi_types_as_finally():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
+def test_try_full():
+    def func():
+        try:
+            a = 1
+        except (KeyError, ValueError) as c:
+            t = 1
+        except TypeError as e:
+            b = 1
+        except:
+            c = 1
+        else:
+            d = 1
+        finally:
+            f = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
 def test_try_empty_except():
     def func():
         try:

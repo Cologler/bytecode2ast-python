@@ -1136,15 +1136,15 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
         handlers.append(handler)
 
     reader.pop_assert(88) # END_FINALLY
-    finally_state = CodeState()
-    walk_until_offset(reader, finally_state, jump_forward.argval)
-    assert len(finally_state.get_value()) == 0
+    orelse_state = CodeState()
+    walk_until_offset(reader, orelse_state, jump_forward.argval)
+    orelse_body = orelse_state.get_value()
 
     node = ast.Try(
         lineno=lineno,
         body=try_body,
         handlers=handlers,
-        orelse=[],
+        orelse=orelse_body,
         finalbody=[],
     )
     state.add_node(node)
