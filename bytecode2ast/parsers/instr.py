@@ -108,16 +108,25 @@ class CodeState:
         self._state: dict = None if scope is Scope.NONE else {}
         self._blocks = [[]] # ensure has last block
 
+    def __repr__(self):
+        return f'b({self._blocks!r}), l({self._load_stack!r})'
+
     @property
     def scope(self):
         return self._scope
+
+    # state
 
     @property
     def state(self):
         return self._state
 
-    def __repr__(self):
-        return f'b({self._blocks!r}), l({self._load_stack!r})'
+    def add_state(self, id, value):
+        ''' add a state, also ensure it does not exists. '''
+        assert id not in self._state
+        self._state[id] = value
+
+    #
 
     def copy(self):
         ''' copy a `CodeState` '''
@@ -774,11 +783,11 @@ def on_instr_delete_fast(reader: CodeReader, state: CodeState, instr: dis.Instru
 
 @op('POP_BLOCK', 87)
 def on_instr_pop_block(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    # end of with/loop
     assert state.scope in (Scope.LOOP, Scope.WITH, Scope.TRY)
     state.new_block()
-    assert ID_POP_BLOCK not in state.state
-    state.state[ID_POP_BLOCK] = instr
+    if state.scope ==  Scope.LOOP:
+        # in loop scope, POP_BLOCK may contains jump target info
+        state.add_state(ID_POP_BLOCK, instr)
 
 
 @op('JUMP_ABSOLUTE', 113)
@@ -1027,7 +1036,6 @@ def on_instr_setup_with(reader: CodeReader, state: CodeState, instr: dis.Instruc
     reader.pop_assert(82) # WITH_CLEANUP_FINISH
     reader.pop_assert(88) # END_FINALLY
     ctx_state.pop() # py emit a 'LOAD_CONST None' and of with stmt
-    ctx_state.state.pop(ID_POP_BLOCK)
 
     with_item = ast.withitem(
         context_expr=load(ctx),
@@ -1079,8 +1087,6 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
 
     try_state = CodeState(scope=Scope.TRY)
     walk_until_offset(reader, try_state, instr.argval)
-
-    try_state.state.pop(ID_POP_BLOCK)
 
     try_blocks = try_state.get_blocks()
     try_body, jump_forward = try_blocks
@@ -1157,7 +1163,6 @@ def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Inst
     walk_until_offset(reader, try_state, instr.argval)
 
     # pop noop
-    try_state.state.pop(ID_POP_BLOCK)
     _ = try_state.pop()
     assert isinstance(_, ast.NameConstant) and _.value is None
 
