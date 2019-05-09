@@ -10,6 +10,8 @@ import dis
 import itertools
 import enum
 
+from .o import ID
+
 class Scope(enum.IntEnum):
     NONE = enum.auto()
     LOOP = enum.auto()
@@ -37,8 +39,9 @@ OP_USUB = ast.USub()
 OP_NOT = ast.Not()
 OP_INVERT = ast.Invert()
 
-ID_FOR_ITER_TARGET = object()
-ID_LOOP_POP_BLOCK = object()
+ID_PADDING = ID('padding')
+ID_FOR_ITER = ID('for_iter')
+ID_LOOP_POP_BLOCK = ID('pop_block')
 
 def load(node):
     ''' set `node.ctx` to `ast.Load` and return it '''
@@ -97,10 +100,15 @@ class CodeState:
         self._ast_stack = []
         self._load_stack = []
         self._scope = scope
+        self._state: dict = None if scope is Scope.NONE else {}
 
     @property
     def scope(self):
         return self._scope
+
+    @property
+    def state(self):
+        return self._state
 
     def __repr__(self):
         return f'a({self._ast_stack!r}), l({self._load_stack!r})'
@@ -149,7 +157,11 @@ class CodeState:
         self._ast_stack.append(node)
 
     def get_value(self) -> list:
-        assert not self._load_stack
+        # ensure all status was handled
+        assert not self._state, self._state
+        assert not self._load_stack, self._load_stack
+
+        # get value
         return self._ast_stack.copy()
 
 
@@ -578,10 +590,7 @@ def on_instr_get_iter(reader: CodeReader, state: CodeState, instr: dis.Instructi
 def on_instr_for_iter(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     # in for-loop, load item from src
     assert state.scope == Scope.LOOP
-    # hack:
-    #   push `ID_FOR_ITER_TARGET` to state
-    #   so `STORE_FAST` will know what is target
-    state.push(ID_FOR_ITER_TARGET)
+    state.state[ID_FOR_ITER] = ID_PADDING # padding
 
 @op('SETUP_LOOP', 120)
 def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -589,6 +598,9 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
 
     loop_state = CodeState(scope=Scope.LOOP)
     walk_until_offset(reader, loop_state, instr.argval) # 114 for `while-loop`, 93 for `for-loop`
+
+    for_iter = loop_state.state.pop(ID_FOR_ITER, None)
+
     loop_body = loop_state.get_value()
 
     # find ID_LOOP_POP_BLOCK on node.body, so we can find the orelse block
@@ -603,7 +615,24 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
     else:
         orelse_body = []
 
-    if len(loop_body) == 1 and isinstance(loop_body[0], ast.If):
+    if for_iter:
+        # this is a for-loop
+        iter_var = loop_body[0]
+        loop_body = loop_body[1:]
+
+        if isinstance(for_iter, ast.Expr):
+            # unpack func call
+            for_iter = for_iter.value
+
+        node = ast.For(
+            lineno=lineno,
+            target=for_iter,
+            iter=iter_var,
+            body=loop_body,
+            orelse=orelse_body
+        )
+
+    else:
         # this is a while-loop
         if_expr: ast.If = loop_body[0]
         assert not if_expr.orelse # should be empty
@@ -641,24 +670,6 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
         node = unpack_while(loop_body)
         assert node is not None
 
-    else:
-        # this is a for-loop
-        iter_src = loop_body[0]
-        iter_var = loop_body[1]
-        loop_body = loop_body[2:]
-
-        if isinstance(iter_src, ast.Expr):
-            # unpack func call
-            iter_src = iter_src.value
-
-        node = ast.For(
-            lineno=lineno,
-            target=iter_var,
-            iter=iter_src,
-            body=loop_body,
-            orelse=orelse_body
-        )
-
     state.add_node(node)
 
 @op('LOAD_GLOBAL', 116)
@@ -670,14 +681,16 @@ def on_instr_load(reader: CodeReader, state: CodeState, instr: dis.Instruction):
 
 @op('STORE_FAST', 125)
 def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    value = state.pop()
-
-    if state.scope == Scope.LOOP and value == ID_FOR_ITER_TARGET:
+    if state.scope == Scope.LOOP and state.state.get(ID_FOR_ITER) is ID_PADDING:
         # that mean `for x in ?`
         # so we store instr as ast.Name for parent to get it.
         node = store(ast.Name(lineno=reader.get_lineno(), id=instr.argval))
+        state.state[ID_FOR_ITER] = node
+        return
 
-    elif isinstance(value, ast.ImportFrom):
+    value = state.pop()
+
+    if isinstance(value, ast.ImportFrom):
         value: ast.ImportFrom = value
         value.names[-1].asname = instr.argval
         # should not store ImportFrom
@@ -813,20 +826,18 @@ def on_instr_unpack_sequence(reader: CodeReader, state: CodeState, instr: dis.In
         return target_tuple
 
     target = get_target()
-    value = state.pop()
 
-    if value is ID_FOR_ITER_TARGET:
-        assert state.scope == Scope.LOOP
-        node = target
+    if state.scope == Scope.LOOP and state.state.get(ID_FOR_ITER) is ID_PADDING:
+        state.state[ID_FOR_ITER] = target
 
     else:
+        value = state.pop()
         node = ast.Assign(
             lineno=reader.get_lineno(),
             targets=[target],
             value=value,
         )
-
-    state.add_node(node)
+        state.add_node(node)
 
 @op('IMPORT_NAME', 108)
 def on_instr_import_name(reader: CodeReader, state: CodeState, instr: dis.Instruction):
