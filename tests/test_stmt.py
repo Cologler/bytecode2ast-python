@@ -77,3 +77,27 @@ def test_rel_import_from():
         from ...a import b as c
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_build_const_map():
+    def func():
+        x = {'a': 1, 'b': 2}
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_build_const_tuple():
+    def func():
+        x = ('a', 'b', 'c')
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_build_const_list():
+    def func():
+        x = ['a', 'b', 'c']
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_build_const_set():
+    def func():
+        x = {'a', 'b', 'c'}
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)

@@ -249,14 +249,12 @@ def walk_until_opcodes(reader: CodeReader, state: CodeState, *opcodes):
         handler(reader, state, instr)
     return state
 
-def _get_ast_value(reader, value, ctx_cls=None):
-    ctx = None if ctx_cls is None else ctx_cls()
+def _get_ast_value(reader, value):
 
     if value is None or value is True or value is False:
         return ast.NameConstant(
             value,
-            lineno=reader.get_lineno(),
-            ctx=ctx
+            lineno=reader.get_lineno()
         )
 
     if isinstance(value, (int, float, str)):
@@ -267,12 +265,12 @@ def _get_ast_value(reader, value, ctx_cls=None):
 
         return cls(
             value,
-            lineno=reader.get_lineno(),
-            ctx=ctx
+            lineno=reader.get_lineno()
         )
 
     if isinstance(value, (tuple, list, set)):
         if isinstance(value, tuple):
+            value = [_get_ast_value(reader, x) for x in value]
             cls = ast.Tuple
         elif isinstance(value, list):
             cls = ast.List
@@ -281,14 +279,12 @@ def _get_ast_value(reader, value, ctx_cls=None):
 
         return cls(
             elts=list(value),
-            lineno=reader.get_lineno(),
-            ctx=ctx
+            lineno=reader.get_lineno()
         )
 
     return ast.Constant(
         value,
-        lineno=reader.get_lineno(),
-        ctx=ctx
+        lineno=reader.get_lineno()
     )
 
 def _ensure_stmt(node):
@@ -476,16 +472,27 @@ def on_instr_return_value(reader: CodeReader, state: CodeState, instr: dis.Instr
 
 @op('LOAD_CONST', 100)
 def on_instr_load_const(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    state.push(_get_ast_value(reader, instr.argval, ctx_cls=ast.Load))
+    state.push(load(_get_ast_value(reader, instr.argval)))
 
 @op('BUILD_TUPLE', 102)
 def on_instr_build_tuple(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     node = ast.Tuple(
         lineno=reader.get_lineno(),
-        elts=state.pop_seq(instr.arg),
-        ctx=CTX_LOAD
+        elts=state.pop_seq(instr.arg)
     )
-    state.push(node)
+    state.push(load(node))
+
+@op('BUILD_LIST', 103, col_cls=ast.List)
+@op('BUILD_SET', 104, col_cls=ast.Set)
+def on_instr_build_list(reader: CodeReader, state: CodeState, instr: dis.Instruction, col_cls):
+    items = state.pop_seq(instr.argval)
+    node = col_cls(
+        lineno=reader.get_lineno(),
+        elts=items,
+    )
+    if items:
+        node.lineno = items[0].lineno
+    state.push(load(node))
 
 @op('BUILD_MAP', 105)
 def on_instr_build_map(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -499,14 +506,13 @@ def on_instr_build_map(reader: CodeReader, state: CodeState, instr: dis.Instruct
     values.reverse()
 
     node = ast.Dict(
-        keys = keys,
-        values = values
+        lineno=reader.get_lineno(),
+        keys=keys,
+        values=values
     )
     if keys:
         node.lineno = keys[0].lineno
-    else:
-        node.lineno =  reader.get_lineno()
-    state.push(node)
+    state.push(load(node))
 
 @op('BUILD_CONST_KEY_MAP', 156)
 def on_instr_build_const_key_map(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -515,7 +521,7 @@ def on_instr_build_const_key_map(reader: CodeReader, state: CodeState, instr: di
     lineno = min([reader.get_lineno(), keys.lineno] + [v.lineno for v in values])
     node = ast.Dict(
         lineno=lineno,
-        keys=[_get_ast_value(reader, k) for k in keys.elts],
+        keys=keys.elts,
         values=values
     )
     state.push(node)
@@ -810,7 +816,7 @@ def on_instr_call_function_kw(reader: CodeReader, state: CodeState, instr: dis.I
 
     args = state.pop_seq(instr.argval)
     kwargs = [
-        ast.keyword(arg=n, value=v) for (n, v) in zip(kw, args[-len(kw):])
+        ast.keyword(arg=n.s, value=v) for (n, v) in zip(kw, args[-len(kw):])
     ]
     args = args[:-len(kw)]
 
