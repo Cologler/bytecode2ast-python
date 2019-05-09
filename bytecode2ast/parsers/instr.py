@@ -1079,57 +1079,56 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
     try_blocks = try_state.get_blocks()
     try_body, jump_forward = try_blocks
 
+    # begin capture error handlers:
     handlers = []
 
-    exc_type = None
-    if reader.peek().opcode != 1:
-        # except ?: ... <- with some type match
-        reader.pop_assert(4) # DUP_TOP
-        type_match_state = CodeState()
-        walk_until_opcodes(reader, type_match_state, 107) # COMPARE_OP
-        _ = reader.pop_assert(107)
-        reader.pop_assert(114) # POP_JUMP_IF_FALSE
+    while reader.peek().opcode != 88: # END_FINALLY
+        catch_lineno = reader.get_lineno()
 
-        assert _.argval == 'exception match'
-        exc_type = type_match_state.pop()
-        assert not type_match_state.get_value()
+        handler = ast.ExceptHandler()
 
-    reader.pop_assert(1) # POP_TOP
+        if reader.peek().opcode != 1:
+            # except ?: ... <- with some type match
+            reader.pop_assert(4) # DUP_TOP
+            type_match_state = CodeState()
+            walk_until_opcodes(reader, type_match_state, 107) # COMPARE_OP
+            _ = reader.pop_assert(107)
+            reader.pop_assert(114) # POP_JUMP_IF_FALSE
 
-    maybe_exc_name = reader.pop()
-    if maybe_exc_name.opcode == 1: # POP_TOP
-        exc_name = None
-    elif maybe_exc_name.opcode == 125: # STORE_FAST
-        exc_name = maybe_exc_name.argval
-    else:
-        assert False, maybe_exc_name
+            assert _.argval == 'exception match'
+            handler.type = type_match_state.pop()
+            assert not type_match_state.get_value()
 
-    reader.pop_assert(1) # POP_TOP
+        reader.pop_assert(1) # POP_TOP
 
-    catch_lineno = reader.get_lineno()
+        maybe_exc_name = reader.pop() # maybe POP_TOP or STORE_FAST
+        if maybe_exc_name.opcode == 125: # STORE_FAST
+            handler.name = maybe_exc_name.argval
+        else:
+            handler.name = None
 
-    catch_state = CodeState()
-    walk_until_opcodes(reader, catch_state, 89) # POP_EXCEPT
-    except_body = catch_state.get_value()
+        handler.lineno = reader.get_lineno()
 
-    if exc_name:
-        assert len(except_body) == 1 and isinstance(except_body[0], ast.Try)
-        exc_var_cleanup: ast.Try = except_body[0]
-        except_body = exc_var_cleanup.body
+        reader.pop_assert(1) # POP_TOP
 
-    handlers.append(
-        ast.ExceptHandler(
-            lineno=catch_lineno,
-            type=exc_type,
-            name=exc_name,
-            body=except_body
-        )
-    )
+        catch_state = CodeState()
+        walk_until_opcodes(reader, catch_state, 89) # POP_EXCEPT
+        except_body = catch_state.get_value()
 
-    # pop noop
-    reader.pop_assert(89) # POP_EXCEPT
+        if handler.name:
+            assert len(except_body) == 1 and isinstance(except_body[0], ast.Try)
+            exc_var_cleanup: ast.Try = except_body[0]
+            except_body = exc_var_cleanup.body
 
-    jump_forward = reader.pop_assert(110) # JUMP_FORWARD
+        handler.body = except_body
+
+        # pop noop
+        reader.pop_assert(89) # POP_EXCEPT
+
+        jump_forward = reader.pop_assert(110) # JUMP_FORWARD
+
+        handlers.append(handler)
+
     reader.pop_assert(88) # END_FINALLY
     finally_state = CodeState()
     walk_until_offset(reader, finally_state, jump_forward.argval)

@@ -150,6 +150,54 @@ def test_try_except_type_finally():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
+def test_try_multi_except_type():
+    def func():
+        try:
+            a = 1
+        except TypeError:
+            c = 1
+        except KeyError:
+            f = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_multi_except_type_finally():
+    def func():
+        try:
+            a = 1
+        except TypeError:
+            c = 1
+        except KeyError:
+            f = 1
+        finally:
+            k = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_type_except():
+    def func():
+        try:
+            a = 1
+        except TypeError:
+            c = 1
+        except:
+            f = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_type_except_finally():
+    def func():
+        try:
+            a = 1
+        except TypeError:
+            c = 1
+        except:
+            f = 1
+        finally:
+            k = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
 def test_try_except_multi_types_type():
     def func():
         try:
