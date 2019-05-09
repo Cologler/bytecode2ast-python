@@ -12,6 +12,9 @@ import inspect
 from .instr import CodeReader, CodeState, walk
 from .utils import reduce_as_pass
 
+def _is_lambda(code):
+    return code.co_name == '<lambda>'
+
 
 class FunctionDefParser:
     def __init__(self, code, func=None):
@@ -113,7 +116,7 @@ class LambdaParser(FunctionDefParser):
 
 def from_code(code):
     ''' return a `ast.FunctionDef` or `ast.Lambda` from a code object. '''
-    if code.co_name == '<lambda>':
+    if _is_lambda(code):
         return LambdaParser(code).parse()
     else:
         return FunctionDefParser(code).parse()
@@ -121,7 +124,7 @@ def from_code(code):
 
 def from_func(func):
     ''' return a ast.FunctionDef from a function. '''
-    if func.__code__.co_name == '<lambda>':
+    if _is_lambda(func.__code__):
         return LambdaParser(func.__code__, func).parse()
     else:
         return FunctionDefParser(func.__code__, func).parse()
