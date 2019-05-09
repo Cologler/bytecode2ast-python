@@ -16,6 +16,8 @@ class Scope(enum.IntEnum):
     NONE = enum.auto()
     LOOP = enum.auto()
     WITH = enum.auto()
+    TRY = enum.auto()
+    FINALLY = enum.auto()
 
 CTX_LOAD = ast.Load()
 CTX_STORE = ast.Store()
@@ -115,7 +117,7 @@ class CodeState:
         return self._state
 
     def __repr__(self):
-        return f'b({self.self._blocks!r}), l({self._load_stack!r})'
+        return f'b({self._blocks!r}), l({self._load_stack!r})'
 
     def copy(self):
         ''' copy a `CodeState` '''
@@ -184,6 +186,11 @@ class CodeState:
 
         # get value
         return self._blocks
+
+    def get_block_count(self) -> int:
+        ''' get count of stmts blocks. '''
+
+        return len(self._blocks)
 
 
 _OPCODE_MAP = {}
@@ -338,8 +345,8 @@ def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
     lineno = reader.get_lineno()
 
     # make sub
-    sub_state = state.copy_with_load(1)
-    state.pop()
+    sub_state = CodeState()
+    sub_state.push(state.pop())
 
     # dup top
     sub_state.dup_top()
@@ -540,19 +547,18 @@ _OP_CLS = {
 @op('COMPARE_OP', 107)
 def on_instr_compare_op(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     opcls = _OP_CLS.get(instr.argval)
-    if not opcls:
-        raise NotImplementedError(instr)
+    if opcls:
+        lineno = reader.get_lineno()
 
-    linenos = [reader.get_lineno()]
+        left, right = state.pop_seq(2)
+        node = ast.Compare(left=left, ops=[opcls()], comparators=[right])
 
-    left, right = state.pop_seq(2)
-    linenos.append(left.lineno)
-    linenos.append(right.lineno)
-    node = ast.Compare(left=left, ops=[opcls()], comparators=[right])
+        lineno = min(lineno, min([left.lineno, right.lineno]))
+        node.lineno = lineno
+        state.push(node)
+        return
 
-    lineno = min(linenos)
-    node.lineno = lineno
-    state.push(node)
+    raise NotImplementedError(instr)
 
 @op('JUMP_IF_FALSE_OR_POP', 111, op=OP_AND)
 @op('JUMP_IF_TRUE_OR_POP', 112, op=OP_OR)
@@ -757,10 +763,19 @@ def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction)
 
     state.store(node)
 
+@op('DELETE_FAST', 126)
+def on_instr_delete_fast(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    if state.scope == Scope.FINALLY:
+        if state.get_block_count() == 2:
+            # in this block, clean error vars.
+            # do nothing here
+            pass
+    pass
+
 @op('POP_BLOCK', 87)
 def on_instr_pop_block(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     # end of with/loop
-    assert state.scope in (Scope.LOOP, Scope.WITH)
+    assert state.scope in (Scope.LOOP, Scope.WITH, Scope.TRY)
     state.new_block()
     assert ID_POP_BLOCK not in state.state
     state.state[ID_POP_BLOCK] = instr
@@ -1047,3 +1062,123 @@ def on_instr_setup_with(reader: CodeReader, state: CodeState, instr: dis.Instruc
     )
 
     state.add_node(with_stmt)
+
+@op('JUMP_FORWARD', 110)
+def on_instr_jump_forward(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    pass
+
+@op('SETUP_EXCEPT', 121)
+def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    lineno = reader.get_lineno()
+
+    try_state = CodeState(scope=Scope.TRY)
+    walk_until_offset(reader, try_state, instr.argval)
+
+    try_state.state.pop(ID_POP_BLOCK)
+
+    try_blocks = try_state.get_blocks()
+    try_body, jump_forward = try_blocks
+
+    handlers = []
+
+    exc_type = None
+    if reader.peek().opcode != 1:
+        # except ?: ... <- with some type match
+        reader.pop_assert(4) # DUP_TOP
+        type_match_state = CodeState()
+        walk_until_opcodes(reader, type_match_state, 107) # COMPARE_OP
+        _ = reader.pop_assert(107)
+        reader.pop_assert(114) # POP_JUMP_IF_FALSE
+
+        assert _.argval == 'exception match'
+        exc_type = type_match_state.pop()
+        assert not type_match_state.get_value()
+
+    reader.pop_assert(1) # POP_TOP
+
+    maybe_exc_name = reader.pop()
+    if maybe_exc_name.opcode == 1: # POP_TOP
+        exc_name = None
+    elif maybe_exc_name.opcode == 125: # STORE_FAST
+        exc_name = maybe_exc_name.argval
+    else:
+        assert False, maybe_exc_name
+
+    reader.pop_assert(1) # POP_TOP
+
+    catch_lineno = reader.get_lineno()
+
+    catch_state = CodeState()
+    walk_until_opcodes(reader, catch_state, 89) # POP_EXCEPT
+    except_body = catch_state.get_value()
+
+    if exc_name:
+        assert len(except_body) == 1 and isinstance(except_body[0], ast.Try)
+        exc_var_cleanup: ast.Try = except_body[0]
+        except_body = exc_var_cleanup.body
+
+    handlers.append(
+        ast.ExceptHandler(
+            lineno=catch_lineno,
+            type=exc_type,
+            name=exc_name,
+            body=except_body
+        )
+    )
+
+    # pop noop
+    reader.pop_assert(89) # POP_EXCEPT
+
+    jump_forward = reader.pop_assert(110) # JUMP_FORWARD
+    reader.pop_assert(88) # END_FINALLY
+    finally_state = CodeState()
+    walk_until_offset(reader, finally_state, jump_forward.argval)
+    assert len(finally_state.get_value()) == 0
+
+    node = ast.Try(
+        lineno=lineno,
+        body=try_body,
+        handlers=handlers,
+        orelse=[],
+        finalbody=[],
+    )
+    state.add_node(node)
+
+@op('SETUP_FINALLY', 122)
+def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    lineno = reader.get_lineno()
+
+    try_state = CodeState(scope=Scope.TRY)
+    walk_until_offset(reader, try_state, instr.argval)
+
+    # pop noop
+    try_state.state.pop(ID_POP_BLOCK)
+    _ = try_state.pop()
+    assert isinstance(_, ast.NameConstant) and _.value is None
+
+    try_block, _ = try_state.get_blocks()
+    assert not _
+
+    finally_state = CodeState(scope=Scope.FINALLY)
+    walk_until_opcodes(reader, finally_state, 88) # END_FINALLY
+    reader.pop_assert(88) # END_FINALLY
+
+    finally_body = finally_state.get_value()
+
+    if len(try_block) == 1 and isinstance(try_block[0], ast.Try):
+        node: ast.Try = try_block[0]
+        node.finalbody = finally_body
+
+    else:
+        node = ast.Try(
+            lineno=lineno,
+            body=try_block,
+            handlers=[],
+            orelse=[],
+            finalbody=finally_body,
+        )
+    state.add_node(node)
+
+@op('END_FINALLY', 88)
+def on_instr_end_finally(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    pass

@@ -109,3 +109,103 @@ def test_with_var_multi():
             r = 1
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except():
+    def func():
+        try:
+            a = 1
+        except:
+            c = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_finally():
+    def func():
+        try:
+            a = 1
+        except:
+            c = 1
+        finally:
+            f = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_type():
+    def func():
+        try:
+            a = 1
+        except TypeError:
+            c = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_type_finally():
+    def func():
+        try:
+            a = 1
+        except TypeError:
+            c = 1
+        finally:
+            f = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_multi_types_type():
+    def func():
+        try:
+            a = 1
+        except (TypeError, KeyError):
+            c = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_multi_types_type_finally():
+    def func():
+        try:
+            a = 1
+        except (TypeError, KeyError):
+            c = 1
+        finally:
+            f = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_type_as():
+    def func():
+        try:
+            a = 1
+        except TypeError as e:
+            c = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_type_as_finally():
+    def func():
+        try:
+            a = 1
+        except TypeError as e:
+            c = 1
+        finally:
+            f = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_multi_types_as():
+    def func():
+        try:
+            a = 1
+        except (TypeError, ValueError) as e:
+            c = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_multi_types_as_finally():
+    def func():
+        try:
+            a = 1
+        except (TypeError, ValueError) as e:
+            c = 1
+        finally:
+            f = 1
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
