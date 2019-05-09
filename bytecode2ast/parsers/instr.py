@@ -41,7 +41,7 @@ OP_INVERT = ast.Invert()
 
 ID_PADDING = ID('padding')
 ID_FOR_ITER = ID('for_iter')
-ID_LOOP_POP_BLOCK = ID('pop_block')
+ID_POP_BLOCK = ID('pop_block')
 
 def load(node):
     ''' set `node.ctx` to `ast.Load` and return it '''
@@ -61,6 +61,9 @@ class CodeReader:
 
     def __bool__(self):
         return bool(self._instructions)
+
+    def __repr__(self):
+        return repr(list(reversed(self._instructions)))
 
     @property
     def co_consts(self):
@@ -101,6 +104,7 @@ class CodeState:
         self._load_stack = []
         self._scope = scope
         self._state: dict = None if scope is Scope.NONE else {}
+        self._blocks = [[]] # ensure has last block
 
     @property
     def scope(self):
@@ -111,7 +115,7 @@ class CodeState:
         return self._state
 
     def __repr__(self):
-        return f'a({self._ast_stack!r}), l({self._load_stack!r})'
+        return f'b({self.self._blocks!r}), l({self._load_stack!r})'
 
     def copy(self):
         ''' copy a `CodeState` '''
@@ -154,15 +158,32 @@ class CodeState:
 
     def add_node(self, node):
         ''' add a final node into ast stmt tree '''
-        self._ast_stack.append(node)
+        self._blocks[-1].append(node)
 
     def get_value(self) -> list:
+        ''' get stmts from single block. '''
+
         # ensure all status was handled
         assert not self._state, self._state
         assert not self._load_stack, self._load_stack
 
         # get value
-        return self._ast_stack.copy()
+        assert len(self._blocks) == 1, self._blocks
+        return self._blocks[-1]
+
+    def new_block(self):
+        ''' make a new stmts block '''
+        self._blocks.append([])
+
+    def get_blocks(self) -> list:
+        ''' get all stmts blocks. '''
+
+        # ensure all status was handled
+        assert not self._state, self._state
+        assert not self._load_stack, self._load_stack
+
+        # get value
+        return self._blocks
 
 
 _OPCODE_MAP = {}
@@ -288,11 +309,9 @@ def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
 def on_instr_rot(reader: CodeReader, state: CodeState, instr):
     lineno = reader.get_lineno()
     # copy
-    sub_state = state.copy_with_load(2)
-    state.pop_seq(2)
-    # rot_two
-    for x in reversed(sub_state.pop_seq(2)):
-        sub_state.push(x)
+    sub_state = CodeState()
+    sub_state.push(state.pop())
+    sub_state.push(state.pop())
 
     walk_until_count(reader, sub_state, 2)
 
@@ -563,11 +582,22 @@ def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.
         lineno=reader.get_lineno(),
         test=state.pop()
     )
-    # body
-    body_state = CodeState()
-    walk_until_offset(reader, body_state, instr.argval)
-    node.body = body_state.get_value()
-    # end body
+
+    if_body_state = CodeState(scope=state.scope)
+
+    if state.scope == Scope.LOOP:
+        if instr.argval < instr.offset:
+            # in loop block, this may possible:
+            # while True: if a: break
+            # so we should read until block ends
+            assert state.scope == Scope.LOOP
+            walk_until_opcodes(reader, if_body_state, 113) # JUMP_ABSOLUTE
+        else:
+            walk_until_offset(reader, if_body_state, instr.argval)
+    else:
+        walk_until_offset(reader, if_body_state, instr.argval)
+
+    node.body = if_body_state.get_value()
 
     else_instr = reader.pop_if(110) # JUMP_FORWARD
     if else_instr:
@@ -576,6 +606,12 @@ def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.
         node.orelse = orelse_state.get_value()
     else:
         node.orelse = []
+
+    # in while-loop,
+    # we need to know offset of if-block
+    # so we can check the condition belong which one
+    node.jump_to = instr.argval
+
     state.add_node(node)
 
 @op('GET_ITER', 68)
@@ -600,25 +636,14 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
     walk_until_offset(reader, loop_state, instr.argval) # 114 for `while-loop`, 93 for `for-loop`
 
     for_iter = loop_state.state.pop(ID_FOR_ITER, None)
+    pop_block: dis.Instruction = loop_state.state.pop(ID_POP_BLOCK)
 
-    loop_body = loop_state.get_value()
-
-    # find ID_LOOP_POP_BLOCK on node.body, so we can find the orelse block
-    try:
-        orelse_start = loop_body.index(ID_LOOP_POP_BLOCK)
-    except ValueError:
-        orelse_start = -1
-
-    if orelse_start >= 0:
-        orelse_body = loop_body[orelse_start+1:]
-        loop_body = loop_body[:orelse_start]
-    else:
-        orelse_body = []
+    loop_block, orelse_block = loop_state.get_blocks()
 
     if for_iter:
         # this is a for-loop
-        iter_var = loop_body[0]
-        loop_body = loop_body[1:]
+        iter_var = loop_block[0]
+        loop_body = loop_block[1:]
 
         if isinstance(for_iter, ast.Expr):
             # unpack func call
@@ -629,27 +654,27 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
             target=for_iter,
             iter=iter_var,
             body=loop_body,
-            orelse=orelse_body
+            orelse=orelse_block
         )
 
     else:
         # this is a while-loop
-        if_expr: ast.If = loop_body[0]
-        assert not if_expr.orelse # should be empty
+        jump_offset: int = pop_block.offset
 
         def unpack_while(maybe_while_expr):
             # unpack
-            # while True: if what: ...
+            #   while True: if what: ...
             # to
-            # while what: ...
+            #   while what: ...
 
             if len(maybe_while_expr) != 1:
                 return None
             if not isinstance(maybe_while_expr[0], ast.If):
                 return None
             if_expr: ast.If = maybe_while_expr[0]
-            if if_expr.orelse:
-                return None # should be empty
+            if if_expr.jump_to != jump_offset:
+                return None
+            assert not if_expr.orelse # should be empty
 
             while_node: ast.While = unpack_while(if_expr.body)
             if while_node is None:
@@ -657,7 +682,7 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
                     lineno=lineno,
                     test=if_expr.test,
                     body=if_expr.body,
-                    orelse=orelse_body
+                    orelse=orelse_block
                 )
             else:
                 while_node.test = ast.BoolOp(
@@ -667,8 +692,15 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
                 )
             return while_node
 
-        node = unpack_while(loop_body)
-        assert node is not None
+        node = unpack_while(loop_block)
+
+        if node is None:
+            node = ast.While(
+                lineno=lineno,
+                test=ast.NameConstant(True),
+                body=loop_block,
+                orelse=orelse_block
+            )
 
     state.add_node(node)
 
@@ -721,19 +753,17 @@ def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction)
 
 @op('POP_BLOCK', 87)
 def on_instr_pop_block(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    # end of with block, ignore it
-
-    if state.scope == Scope.LOOP:
-        # end of loop block
-        # simple to add a id
-        # so parent known where to start the else block
-        state.add_node(ID_LOOP_POP_BLOCK)
+    # end of with/loop
+    assert state.scope in (Scope.LOOP, Scope.WITH)
+    state.new_block()
+    assert ID_POP_BLOCK not in state.state
+    state.state[ID_POP_BLOCK] = instr
 
 
 @op('JUMP_ABSOLUTE', 113)
 def on_instr_jump_absolute(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    # end of loop block, ignore
-    pass
+    # end of loop block, jump to loop start.
+    assert state.scope is Scope.LOOP
 
 def _make_func_call(reader: CodeReader, state: CodeState, instr: dis.Instruction, args, kwargs):
     func = state.pop()
@@ -976,13 +1006,16 @@ def on_instr_setup_with(reader: CodeReader, state: CodeState, instr: dis.Instruc
     reader.pop_assert(82) # WITH_CLEANUP_FINISH
     reader.pop_assert(88) # END_FINALLY
     ctx_state.pop() # py emit a 'LOAD_CONST None' and of with stmt
+    ctx_state.state.pop(ID_POP_BLOCK)
 
     with_item = ast.withitem(
         context_expr=load(ctx),
         optional_vars=None
     )
 
-    ctx_body = ctx_state.get_value()
+    ctx_body, ctx_orelse = ctx_state.get_blocks()
+    assert len(ctx_orelse) == 0 # unused
+
     ctx_var = ctx_body[0]
 
     if isinstance(ctx_var, ast.Expr):
