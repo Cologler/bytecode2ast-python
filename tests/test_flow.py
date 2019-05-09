@@ -37,6 +37,13 @@ def test_if():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
+def test_white():
+    def func():
+        while a:
+            break
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
 def test_white_a_and_b():
     def func():
         while a and b:
