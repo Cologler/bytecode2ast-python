@@ -1069,6 +1069,12 @@ def on_instr_jump_forward(reader: CodeReader, state: CodeState, instr: dis.Instr
 
 @op('SETUP_EXCEPT', 121)
 def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    def body_not_empty(body: list, lineno: int):
+        # try body and except body can not be empty.
+        if not body:
+            body.append(ast.Pass(lineno=lineno))
+        return body
+
     lineno = reader.get_lineno()
 
     try_state = CodeState(scope=Scope.TRY)
@@ -1078,6 +1084,7 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
 
     try_blocks = try_state.get_blocks()
     try_body, jump_forward = try_blocks
+    try_body = body_not_empty(try_body, reader.get_lineno())
 
     # begin capture error handlers:
     handlers = []
@@ -1113,17 +1120,16 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
 
         catch_state = CodeState()
         walk_until_opcodes(reader, catch_state, 89) # POP_EXCEPT
-        except_body = catch_state.get_value()
+        except_body: list = catch_state.get_value()
 
         if handler.name:
             assert len(except_body) == 1 and isinstance(except_body[0], ast.Try)
             exc_var_cleanup: ast.Try = except_body[0]
             except_body = exc_var_cleanup.body
 
-        handler.body = except_body
+        reader.pop_assert(89) # POP_EXCEPT will update loneno
 
-        # pop noop
-        reader.pop_assert(89) # POP_EXCEPT
+        handler.body = body_not_empty(except_body, reader.get_lineno())
 
         jump_forward = reader.pop_assert(110) # JUMP_FORWARD
 
