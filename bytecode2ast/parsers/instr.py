@@ -1158,8 +1158,7 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
         lineno=lineno,
         body=try_body,
         handlers=handlers,
-        orelse=orelse_body,
-        finalbody=[],
+        orelse=orelse_body
     )
 
     if state.scope == Scope.FINALLY:
@@ -1201,6 +1200,7 @@ def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Inst
 
     if _is_try_block_reusable():
         node: ast.Try = try_block[0]
+        assert node.lineno == lineno
         node.finalbody = finally_body
 
     else:
