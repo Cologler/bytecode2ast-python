@@ -16,7 +16,7 @@ class Scope(enum.IntEnum):
     NONE = enum.auto()
     LOOP = enum.auto()
     WITH = enum.auto()
-    TRY = enum.auto()
+    EXCEPT = enum.auto()
     FINALLY = enum.auto()
 
 CTX_LOAD = ast.Load()
@@ -783,7 +783,7 @@ def on_instr_delete_fast(reader: CodeReader, state: CodeState, instr: dis.Instru
 
 @op('POP_BLOCK', 87)
 def on_instr_pop_block(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    assert state.scope in (Scope.LOOP, Scope.WITH, Scope.TRY)
+    assert state.scope in (Scope.LOOP, Scope.WITH, Scope.EXCEPT, Scope.FINALLY)
     state.new_block()
     if state.scope ==  Scope.LOOP:
         # in loop scope, POP_BLOCK may contains jump target info
@@ -1085,11 +1085,15 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
 
     lineno = reader.get_lineno()
 
-    try_state = CodeState(scope=Scope.TRY)
+    try_state = CodeState(scope=Scope.EXCEPT)
     walk_until_offset(reader, try_state, instr.argval)
 
     try_blocks = try_state.get_blocks()
-    try_body, jump_forward = try_blocks
+    try_body, _ = try_blocks
+    # _ should be [JUMP_FORWARD]
+    # but for now we did not add any node from JUMP_FORWARD instr
+    # so _ should be empty.
+    assert not _
     try_body = body_not_empty(try_body, reader.get_lineno())
 
     # begin capture error handlers:
@@ -1111,6 +1115,10 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
             assert _.argval == 'exception match'
             handler.type = type_match_state.pop()
             assert not type_match_state.get_value()
+
+        else:
+            # except: ...
+            handler.type = None
 
         reader.pop_assert(1) # POP_TOP
 
@@ -1153,13 +1161,19 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
         orelse=orelse_body,
         finalbody=[],
     )
+
+    if state.scope == Scope.FINALLY:
+        node.finalbody = None # wait for parent set
+    else:
+        node.finalbody = []
+
     state.add_node(node)
 
 @op('SETUP_FINALLY', 122)
 def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     lineno = reader.get_lineno()
 
-    try_state = CodeState(scope=Scope.TRY)
+    try_state = CodeState(scope=Scope.FINALLY)
     walk_until_offset(reader, try_state, instr.argval)
 
     # pop noop
@@ -1175,7 +1189,17 @@ def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Inst
 
     finally_body = finally_state.get_value()
 
-    if len(try_block) == 1 and isinstance(try_block[0], ast.Try):
+    def _is_try_block_reusable():
+        if len(try_block) != 1:
+            return False
+        maybe_try_node: ast.Try = try_block[0]
+        if not isinstance(maybe_try_node, ast.Try):
+            return False
+        # if finalbody is not None,
+        # that mean maybe_try_node already has one finally stmt
+        return maybe_try_node.finalbody is None
+
+    if _is_try_block_reusable():
         node: ast.Try = try_block[0]
         node.finalbody = finally_body
 
@@ -1187,6 +1211,7 @@ def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Inst
             orelse=[],
             finalbody=finally_body,
         )
+
     state.add_node(node)
 
 @op('END_FINALLY', 88)

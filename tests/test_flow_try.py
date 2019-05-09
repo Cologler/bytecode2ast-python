@@ -172,6 +172,27 @@ def test_try_except_multi_types_as_finally():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
+def test_try_finally():
+    def func():
+        try:
+            a = 1
+        finally:
+            f = 6
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_finally_deep():
+    def func():
+        try:
+            try:
+                a = 2
+            finally:
+                b = 3
+        finally:
+            d = 5
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
 def test_try_full():
     def func():
         try:
