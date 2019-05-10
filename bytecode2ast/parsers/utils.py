@@ -36,3 +36,28 @@ class ensure:
         if not body:
             body.append(ast.Pass(lineno=lineno))
         return body
+
+    @staticmethod
+    def unpack_expr(node):
+        '''
+        may need this when you visit:
+            TypeError: expected some sort of expr, but got <ast.Expr object>
+        '''
+        if isinstance(node, ast.Expr):
+            node = node.value
+        return node
+
+class tests:
+    '''
+    a test class
+    '''
+
+    @staticmethod
+    def eq(*items):
+        ''' test whether all values are equals. '''
+
+        if not items:
+            raise ValueError
+
+        value = items[0]
+        return all(x == value for x in items[1:])

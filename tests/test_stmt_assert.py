@@ -37,8 +37,14 @@ def test_assert():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_assert_with_desc():
+def test_assert_with_msg():
     def func():
         assert a, b
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_assert_with_msg2():
+    def func():
+        assert a, b()
 
     assert get_instrs(func) == get_instrs_from_b2a(func)

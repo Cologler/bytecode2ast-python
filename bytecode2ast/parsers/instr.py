@@ -15,7 +15,7 @@ from .bases import (
     op, get_instr_handler
 )
 from .utils import (
-    ensure
+    ensure, tests
 )
 
 CTX_LOAD = ast.Load()
@@ -441,24 +441,69 @@ def on_instr_pop_jump_if_true(reader: CodeReader, state: CodeState, instr: dis.I
     test = state.pop()
     before_jump_body = reader.read_until_offset(instr.argval).get_value()
 
-    # if stmts
-    test = ast.UnaryOp(
-        lineno=test.lineno,
-        op=OP_NOT,
-        operand=test
-    )
-
-    node = ast.If(
-        lineno=lineno,
-        test=test,
-        body=ensure.body_not_empty(before_jump_body, reader.get_lineno())
-    )
-
     else_instr = reader.pop_if(110) # JUMP_FORWARD
     if else_instr:
-        node.orelse = reader.read_until_offset(else_instr.argval).get_value()
+        orelse_body = reader.read_until_offset(else_instr.argval).get_value()
     else:
-        node.orelse = []
+        orelse_body = []
+
+    def is_AssertionError(name: ast.Name):
+        return isinstance(name, ast.Name) and name.id == 'AssertionError'
+
+    def is_assert_stmts():
+        'check if this is assert stmts'
+
+        # single body and is raise
+        if len(before_jump_body) != 1 or not isinstance(before_jump_body[0], ast.Raise):
+            return False
+
+        maybe_assert: ast.Raise = before_jump_body[0]
+
+        # require same lines
+        if not tests.eq(lineno, maybe_assert.lineno, maybe_assert.exc.lineno):
+            return False
+
+        if is_AssertionError(maybe_assert.exc):
+            # maybe: raise ?
+            return True
+        elif isinstance(maybe_assert.exc, ast.Call):
+            # maybe: raise ?, ?
+            if not is_AssertionError(maybe_assert.exc.func):
+                return False
+            if len(maybe_assert.exc.args) == 1:
+                arg = maybe_assert.exc.args[0]
+                return tests.eq(lineno, arg.lineno)
+
+        return False
+
+    if is_assert_stmts():
+        # assert stmts
+        if not is_AssertionError(before_jump_body[0].exc):
+            # got msg arg for assert
+            msg = before_jump_body[0].exc.args[0]
+        else:
+            msg = None
+
+        node = ast.Assert(
+            lineno=lineno,
+            test=test,
+            msg=ensure.unpack_expr(msg)
+        )
+
+    else:
+        # if stmts
+        test = ast.UnaryOp(
+            lineno=test.lineno,
+            op=OP_NOT,
+            operand=test
+        )
+
+        node = ast.If(
+            lineno=lineno,
+            test=test,
+            body=ensure.body_not_empty(before_jump_body, reader.get_lineno()),
+            orelse=orelse_body
+        )
 
     state.add_node(node)
 
@@ -492,13 +537,9 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
         iter_var = loop_block[0]
         loop_body = loop_block[1:]
 
-        if isinstance(for_iter, ast.Expr):
-            # unpack func call
-            for_iter = for_iter.value
-
         node = ast.For(
             lineno=lineno,
-            target=for_iter,
+            target=ensure.unpack_expr(for_iter),
             iter=iter_var,
             body=loop_body,
             orelse=orelse_block
@@ -848,10 +889,7 @@ def on_instr_call_method(reader: CodeReader, state: CodeState, instr: dis.Instru
 def on_instr_setup_with(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     lineno = reader.get_lineno()
 
-    ctx = state.pop()
-    # unpack
-    if isinstance(ctx, ast.Expr):
-        ctx = ctx.value
+    ctx = ensure.unpack_expr(state.pop())
 
     ctx_state = CodeState(scope=Scope.WITH)
     ctx_state.push(ctx)
@@ -871,10 +909,7 @@ def on_instr_setup_with(reader: CodeReader, state: CodeState, instr: dis.Instruc
     ctx_body, ctx_orelse = ctx_state.get_blocks()
     assert len(ctx_orelse) == 0 # unused
 
-    ctx_var = ctx_body[0]
-
-    if isinstance(ctx_var, ast.Expr):
-        ctx_var = ctx_var.value
+    ctx_var = ensure.unpack_expr(ctx_body[0])
 
     if ctx_var is ctx:
         # if ctx_var is ctx, mean `with ctx: pass`
@@ -1030,10 +1065,7 @@ def on_instr_end_finally(reader: CodeReader, state: CodeState, instr: dis.Instru
 @op('RAISE_VARARGS', 130)
 def on_instr_raise_varargs(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     assert instr.argval == 1, instr.argval
-    exc_var = state.pop()
-
-    if isinstance(exc_var, ast.Expr):
-        exc_var = exc_var.value
+    exc_var = ensure.unpack_expr(state.pop())
 
     node = ast.Raise(
         lineno=reader.get_lineno(),
