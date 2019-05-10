@@ -38,6 +38,19 @@ class ensure:
         return body
 
     @staticmethod
+    def pack_expr(node):
+        '''
+        may need this when you visit:
+            TypeError: expected some sort of stmt, but got <? object>
+        '''
+        if not isinstance(node, ast.stmt):
+            node = ast.Expr(
+                lineno=node.lineno,
+                value=node
+            )
+        return node
+
+    @staticmethod
     def unpack_expr(node):
         '''
         may need this when you visit:

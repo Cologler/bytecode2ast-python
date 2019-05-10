@@ -92,19 +92,9 @@ def _get_ast_value(reader, value):
         lineno=reader.get_lineno()
     )
 
-def _ensure_stmt(node):
-    if not isinstance(node, ast.stmt):
-        # for node like `CompareOp` or `UnaryOp` or more
-        node = ast.Expr(
-            lineno=node.lineno,
-            value=node
-        )
-    return node
-
 @op('POP_TOP', 1)
 def on_instr_pop_top(reader: CodeReader, state: CodeState, instr):
-    node = _ensure_stmt(state.pop())
-    state.add_node(node)
+    state.add_node(ensure.pack_expr(state.pop()))
 
 @op('ROT_TWO', 2)
 def on_instr_rot(reader: CodeReader, state: CodeState, instr):
@@ -436,6 +426,8 @@ def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.
 @op('POP_JUMP_IF_TRUE', 115)
 def on_instr_pop_jump_if_true(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     # possible start `assert` or `if ...` stmts
+    # how ever we will not emit ast.Assert because instructions of those are same:
+    # instructions('assert a') == instructions('if not a: raise AssertionError')
 
     lineno = reader.get_lineno()
     test = state.pop()
@@ -476,7 +468,7 @@ def on_instr_pop_jump_if_true(reader: CodeReader, state: CodeState, instr: dis.I
 
         return False
 
-    if is_assert_stmts():
+    if False:
         # assert stmts
         if not is_AssertionError(before_jump_body[0].exc):
             # got msg arg for assert
@@ -665,14 +657,11 @@ def on_instr_jump_absolute(reader: CodeReader, state: CodeState, instr: dis.Inst
 def _make_func_call(reader: CodeReader, state: CodeState, instr: dis.Instruction, args, kwargs):
     func = state.pop()
     state.push(
-        ast.Expr(
+        ast.Call(
             lineno=reader.get_lineno(),
-            value=ast.Call(
-                lineno=reader.get_lineno(),
-                func=func,
-                args=args,
-                keywords=kwargs
-            )
+            func=func,
+            args=args,
+            keywords=kwargs
         )
     )
 
