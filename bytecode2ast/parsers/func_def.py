@@ -9,7 +9,7 @@ import dis
 import ast
 import inspect
 
-from .instr import CodeReader, CodeState, walk
+from .instr import CodeReader, CodeState
 from .utils import reduce_as_pass
 
 def _is_lambda(code):
@@ -83,9 +83,7 @@ class FunctionDefParser:
     def _parse_body(self):
         instructions = list(dis.Bytecode(self._code))
         reader = CodeReader(instructions)
-        state = CodeState()
-        walk(reader, state)
-        body = state.get_value()
+        body = reader.read_until_end().get_value()
         return reduce_as_pass(body)
 
     def _parse_decorator_list(self):

@@ -10,7 +10,10 @@ import dis
 import itertools
 import enum
 
-from .bases import ID, Scope, CodeReader, CodeState
+from .bases import (
+    ID, Scope, CodeReader, CodeState,
+    op, get_instr_handler
+)
 
 CTX_LOAD = ast.Load()
 CTX_STORE = ast.Store()
@@ -47,70 +50,6 @@ def store(node):
     ''' set `node.ctx` to `ast.Load` and return it '''
     node.ctx = CTX_STORE
     return node
-
-
-_OPCODE_MAP = {}
-def op(opname, opcode, **kwargs):
-    def wrapper(func):
-        def func_wrapper(reader, state, instr: dis.Instruction):
-            func(reader, state, instr, **kwargs)
-        assert opcode not in _OPCODE_MAP
-        _OPCODE_MAP[(opname, opcode)] = func_wrapper
-        return func
-    return wrapper
-
-def get_instr_handler(instr):
-    '''
-    the return function `(reader, state, instr) -> None`
-    '''
-    k = (instr.opname, instr.opcode)
-    try:
-        return _OPCODE_MAP[k]
-    except KeyError:
-        raise NotImplementedError(k, instr)
-
-def walk(reader: CodeReader, state: CodeState):
-    ''' walk reader until reader end '''
-    while reader:
-        instr = reader.pop()
-        handler = get_instr_handler(instr)
-        handler(reader, state, instr)
-    return state
-
-def walk_until_count(reader: CodeReader, state: CodeState, count: int):
-    ''' walk reader until handled count of instrs '''
-    end_count = reader.get_instrs_count() - count
-    while reader.get_instrs_count() > end_count:
-        instr = reader.pop()
-        handler = get_instr_handler(instr)
-        handler(reader, state, instr)
-    return state
-
-def walk_until_scoped_count(reader: CodeReader, state: CodeState, count: int):
-    ''' walk reader until handled count of instrs in current scope. '''
-    assert count > 0
-    while count:
-        count -= 1
-        instr = reader.pop()
-        handler = get_instr_handler(instr)
-        handler(reader, state, instr)
-    return state
-
-def walk_until_offset(reader: CodeReader, state: CodeState, offset):
-    ''' walk reader until come to the offset '''
-    while reader.peek().offset != offset:
-        instr = reader.pop()
-        handler = get_instr_handler(instr)
-        handler(reader, state, instr)
-    return state
-
-def walk_until_opcodes(reader: CodeReader, state: CodeState, *opcodes):
-    ''' walk reader until visit some opcodes '''
-    while reader.peek().opcode not in opcodes:
-        instr = reader.pop()
-        handler = get_instr_handler(instr)
-        handler(reader, state, instr)
-    return state
 
 def _get_ast_value(reader, value):
 
@@ -172,7 +111,7 @@ def on_instr_rot(reader: CodeReader, state: CodeState, instr):
     sub_state.push(state.pop())
     sub_state.push(state.pop())
 
-    walk_until_count(reader, sub_state, 2)
+    reader.read_until_count(2).fill_state(sub_state)
 
     # handle values
     ns = sub_state.get_value()
@@ -208,7 +147,7 @@ def on_instr_dup_top(reader: CodeReader, state: CodeState, instr):
     sub_state.dup_top()
 
     # walk
-    walk_until_scoped_count(reader, sub_state, 2)
+    reader.read_until_scoped_count(2).fill_state(sub_state)
 
     # handle values
     ns = sub_state.get_value()
@@ -422,7 +361,7 @@ def on_instr_bool_op(reader: CodeReader, state: CodeState, instr: dis.Instructio
     # logic and: `a and b`
     lineno = reader.get_lineno()
     first = state.pop()
-    walk_until_scoped_count(reader, state, 1)
+    reader.read_until_scoped_count(1).fill_state(state)
     second = state.pop()
     node = ast.BoolOp(
         lineno=lineno,
@@ -435,7 +374,7 @@ def on_instr_jump_if_false_or_pop(reader: CodeReader, state: CodeState, instr: d
     # logic and: `a and b`
     lineno = reader.get_lineno()
     first = state.pop()
-    walk_until_scoped_count(reader, state, 1)
+    reader.read_until_scoped_count(1).fill_state(state)
     second = state.pop()
     node = ast.BoolOp(
         lineno=lineno,
@@ -451,27 +390,23 @@ def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.
         test=state.pop()
     )
 
-    if_body_state = CodeState(scope=state.scope)
-
     if state.scope == Scope.LOOP:
         if instr.argval < instr.offset:
             # in loop block, this may possible:
             # while True: if a: break
             # so we should read until block ends
             assert state.scope == Scope.LOOP
-            walk_until_opcodes(reader, if_body_state, 113) # JUMP_ABSOLUTE
+            ator = reader.read_until_opcodes(113) # JUMP_ABSOLUTE
         else:
-            walk_until_offset(reader, if_body_state, instr.argval)
+            ator = reader.read_until_offset(instr.argval)
     else:
-        walk_until_offset(reader, if_body_state, instr.argval)
+        ator = reader.read_until_offset(instr.argval)
 
-    node.body = if_body_state.get_value()
+    node.body = ator.get_value(scope=state.scope)
 
     else_instr = reader.pop_if(110) # JUMP_FORWARD
     if else_instr:
-        orelse_state = CodeState()
-        walk_until_offset(reader, orelse_state, else_instr.argval)
-        node.orelse = orelse_state.get_value()
+        node.orelse = reader.read_until_offset(else_instr.argval).get_value()
     else:
         node.orelse = []
 
@@ -500,8 +435,7 @@ def on_instr_for_iter(reader: CodeReader, state: CodeState, instr: dis.Instructi
 def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     lineno = reader.get_lineno()
 
-    loop_state = CodeState(scope=Scope.LOOP)
-    walk_until_offset(reader, loop_state, instr.argval) # 114 for `while-loop`, 93 for `for-loop`
+    loop_state = reader.read_until_offset(instr.argval).get_state(scope=Scope.LOOP)
 
     for_iter = loop_state.state.pop(ID_FOR_ITER, None)
     pop_block: dis.Instruction = loop_state.state.pop(ID_POP_BLOCK)
@@ -876,7 +810,7 @@ def on_instr_setup_with(reader: CodeReader, state: CodeState, instr: dis.Instruc
 
     ctx_state = CodeState(scope=Scope.WITH)
     ctx_state.push(ctx)
-    walk_until_offset(reader, ctx_state, instr.argval)
+    reader.read_until_offset(instr.argval).fill_state(ctx_state)
 
     # pop noop
     reader.pop_assert(81) # WITH_CLEANUP_START
@@ -932,10 +866,7 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
 
     lineno = reader.get_lineno()
 
-    try_state = CodeState(scope=Scope.EXCEPT)
-    walk_until_offset(reader, try_state, instr.argval)
-
-    try_blocks = try_state.get_blocks()
+    try_blocks = reader.read_until_offset(instr.argval).get_blocks(scope=Scope.EXCEPT)
     try_body, _ = try_blocks
     # _ should be [JUMP_FORWARD]
     # but for now we did not add any node from JUMP_FORWARD instr
@@ -954,8 +885,7 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
         if reader.peek().opcode != 1:
             # except ?: ... <- with some type match
             reader.pop_assert(4) # DUP_TOP
-            type_match_state = CodeState()
-            walk_until_opcodes(reader, type_match_state, 107) # COMPARE_OP
+            type_match_state = reader.read_until_opcodes(107).get_state() # COMPARE_OP
             _ = reader.pop_assert(107)
             reader.pop_assert(114) # POP_JUMP_IF_FALSE
 
@@ -979,9 +909,7 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
 
         reader.pop_assert(1) # POP_TOP
 
-        catch_state = CodeState()
-        walk_until_opcodes(reader, catch_state, 89) # POP_EXCEPT
-        except_body: list = catch_state.get_value()
+        except_body: list = reader.read_until_opcodes(89).get_value() # POP_EXCEPT
 
         if handler.name:
             assert len(except_body) == 1 and isinstance(except_body[0], ast.Try)
@@ -997,7 +925,7 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
         handlers.append(handler)
 
     reader.pop_assert(88) # END_FINALLY
-    orelse_body = walk_until_offset(reader, CodeState(), jump_forward.argval).get_value()
+    orelse_body = reader.read_until_offset(jump_forward.argval).get_value()
 
     node = ast.Try(
         lineno=lineno,
@@ -1018,7 +946,7 @@ def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Inst
     lineno = reader.get_lineno()
 
     try_state = CodeState(scope=Scope.FINALLY)
-    walk_until_offset(reader, try_state, instr.argval)
+    try_state = reader.read_until_offset(instr.argval).get_state(scope=Scope.FINALLY)
 
     # pop noop
     _ = try_state.pop()
@@ -1027,11 +955,8 @@ def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Inst
     try_block, _ = try_state.get_blocks()
     assert not _
 
-    finally_state = CodeState(scope=Scope.FINALLY)
-    walk_until_opcodes(reader, finally_state, 88) # END_FINALLY
+    finally_body = reader.read_until_opcodes(88).get_value(scope=Scope.FINALLY) # END_FINALLY
     reader.pop_assert(88) # END_FINALLY
-
-    finally_body = finally_state.get_value()
 
     def _is_try_block_reusable():
         if len(try_block) != 1:

@@ -27,51 +27,6 @@ class Scope(enum.IntEnum):
     FINALLY = enum.auto()
 
 
-class CodeReader:
-    def __init__(self, instructions):
-        # reversed will fast
-        self._instructions = list(reversed(instructions))
-        self._lineno = None
-
-    def __bool__(self):
-        return bool(self._instructions)
-
-    def __repr__(self):
-        return repr(list(reversed(self._instructions)))
-
-    @property
-    def co_consts(self):
-        return self._co_consts
-
-    def get_instrs_count(self) -> int:
-        return len(self._instructions)
-
-    def get_lineno(self) -> int:
-        return self._lineno
-
-    def peek(self) -> dis.Instruction:
-        ''' peek one instr '''
-        if not self._instructions:
-            return None
-        return self._instructions[-1]
-
-    def pop(self) -> dis.Instruction:
-        ''' pop one instr '''
-        instr = self._instructions.pop()
-        if instr.starts_line is not None:
-            self._lineno = instr.starts_line
-        return instr
-
-    def pop_assert(self, opcode: int) -> dis.Instruction:
-        instr = self.pop()
-        assert instr.opcode == opcode
-        return instr
-
-    def pop_if(self, opcode: int) -> dis.Instruction:
-        if self._instructions and self._instructions[-1].opcode == opcode:
-            return self.pop()
-
-
 class CodeState:
     def __init__(self, *, scope=Scope.NONE):
         self._ast_stack = []
@@ -172,3 +127,133 @@ class CodeState:
         ''' get count of stmts blocks. '''
 
         return len(self._blocks)
+
+
+class CodeReaderIter:
+    __slots__ = ('_reader', '_condition')
+
+    def __init__(self, reader, condition):
+        self._reader: CodeReader = reader
+        self._condition = condition
+
+    def __iter__(self):
+        while self._condition():
+            yield self._reader.pop()
+
+    def fill_state(self, state: CodeState):
+        ''' iter self into the `CodeState` and return it. '''
+        for instr in self:
+            handler = get_instr_handler(instr)
+            handler(self._reader, state, instr)
+        return state
+
+    def get_state(self, *, scope=Scope.NONE):
+        ''' iter self into a new `CodeState`, return the `CodeState` '''
+        state = CodeState(scope=scope)
+        return self.fill_state(state)
+
+    def get_value(self, *, scope=Scope.NONE):
+        ''' iter self into a new `CodeState`, return value from `CodeState`. '''
+        return self.get_state(scope=scope).get_value()
+
+    def get_blocks(self, *, scope=Scope.NONE):
+        ''' iter self into a new `CodeState`, return blocks from `CodeState`. '''
+        return self.get_state(scope=scope).get_blocks()
+
+
+class CodeReader:
+    def __init__(self, instructions):
+        # reversed will fast
+        self._instructions = list(reversed(instructions))
+        self._lineno = None
+
+    def __bool__(self):
+        return bool(self._instructions)
+
+    def __repr__(self):
+        return repr(list(reversed(self._instructions)))
+
+    @property
+    def co_consts(self):
+        return self._co_consts
+
+    def get_instrs_count(self) -> int:
+        return len(self._instructions)
+
+    def get_lineno(self) -> int:
+        return self._lineno
+
+    def peek(self) -> dis.Instruction:
+        ''' peek one instr '''
+        if not self._instructions:
+            return None
+        return self._instructions[-1]
+
+    def pop(self) -> dis.Instruction:
+        ''' pop one instr '''
+        instr = self._instructions.pop()
+        if instr.starts_line is not None:
+            self._lineno = instr.starts_line
+        return instr
+
+    def pop_assert(self, opcode: int) -> dis.Instruction:
+        instr = self.pop()
+        assert instr.opcode == opcode
+        return instr
+
+    def pop_if(self, opcode: int) -> dis.Instruction:
+        if self._instructions and self._instructions[-1].opcode == opcode:
+            return self.pop()
+
+    # read methods
+
+    def read_until_end(self):
+        ''' read until reader end. '''
+        return CodeReaderIter(self, lambda: self)
+
+    def read_until_offset(self, offset: int):
+        ''' read until come to the offset '''
+        return CodeReaderIter(self, lambda: self.peek().offset != offset)
+
+    def read_until_opcodes(self, *opcodes):
+        ''' read until visit some opcodes '''
+        return CodeReaderIter(self, lambda: self.peek().opcode not in opcodes)
+
+    def read_until_count(self, count: int):
+        ''' read until handled count of instrs '''
+        end_count = self.get_instrs_count() - count
+        return CodeReaderIter(self, lambda: self.get_instrs_count() > end_count)
+
+    def read_until_scoped_count(self, count: int):
+        ''' read until handled count of instrs in current scope. '''
+        if count <= 0:
+            raise ValueError(count)
+
+        def cond():
+            nonlocal count
+            count -= 1
+            return count >= 0
+
+        return CodeReaderIter(self, cond)
+
+
+_OPCODE_MAP = {}
+
+def op(opname, opcode, **kwargs):
+    def wrapper(func):
+        def func_wrapper(reader, state, instr: dis.Instruction):
+            func(reader, state, instr, **kwargs)
+        assert opcode not in _OPCODE_MAP
+        _OPCODE_MAP[(opname, opcode)] = func_wrapper
+        return func
+    return wrapper
+
+def get_instr_handler(instr):
+    '''
+    the return function `(reader, state, instr) -> None`
+    '''
+    k = (instr.opname, instr.opcode)
+    try:
+        return _OPCODE_MAP[k]
+    except KeyError:
+        raise NotImplementedError(k, instr)
