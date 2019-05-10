@@ -31,10 +31,22 @@ def test_if():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
+def test_if_single_line():
+    def func():
+        if a == 1: b()
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
 def test_if_pass():
     def func():
         if a == 1:
             pass
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_if_pass_single_line():
+    def func():
+        if a == 1: pass
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
@@ -44,6 +56,14 @@ def test_if_else_pass():
             c()
         else:
             pass
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_if_else_pass_single_line():
+    def func():
+        if a == 1:
+            c()
+        else: pass
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
@@ -58,9 +78,15 @@ def test_if_pass_else_pass():
 
 def test_if_not():
     def func():
-        if not (__name__ == 'a'):
-            return 10
-        return None
+        if not a:
+            b()
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_if_not_pass():
+    def func():
+        if not a:
+            pass
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 

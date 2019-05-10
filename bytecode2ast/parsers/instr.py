@@ -451,7 +451,7 @@ def on_instr_pop_jump_if_true(reader: CodeReader, state: CodeState, instr: dis.I
     node = ast.If(
         lineno=lineno,
         test=test,
-        body=before_jump_body
+        body=ensure.body_not_empty(before_jump_body, reader.get_lineno())
     )
 
     else_instr = reader.pop_if(110) # JUMP_FORWARD
