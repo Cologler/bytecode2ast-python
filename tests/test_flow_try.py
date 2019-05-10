@@ -244,3 +244,15 @@ def test_deep_try_except():
             d = 4
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_try_except_finally():
+    def func():
+        try:
+            try:
+                a()
+            except:
+                b()
+        finally:
+            c()
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
