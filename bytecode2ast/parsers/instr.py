@@ -1026,3 +1026,18 @@ def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Inst
 @op('END_FINALLY', 88)
 def on_instr_end_finally(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     pass
+
+@op('RAISE_VARARGS', 130)
+def on_instr_raise_varargs(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    assert instr.argval == 1, instr.argval
+    exc_var = state.pop()
+
+    if isinstance(exc_var, ast.Expr):
+        exc_var = exc_var.value
+
+    node = ast.Raise(
+        lineno=reader.get_lineno(),
+        exc=exc_var,
+        cause=None,
+    )
+    state.add_node(node)
