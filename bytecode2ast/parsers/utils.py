@@ -20,3 +20,19 @@ def reduce_as_pass(blocks: list) -> list:
                     return [ast.Pass(lineno=block.lineno)]
 
     return blocks
+
+class ensure:
+    '''
+    a check class
+    '''
+
+    @staticmethod
+    def body_not_empty(body: list, lineno: int):
+        '''
+        ensure body list is not empty.
+        if body list is empty, append `PASS` on it.
+        '''
+        # try body and except body can not be empty.
+        if not body:
+            body.append(ast.Pass(lineno=lineno))
+        return body

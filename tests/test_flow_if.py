@@ -24,75 +24,55 @@ def get_instrs_from_b2a(func):
     new_func = get_func_from_exec(compile(module, '<string>', 'exec'), name)
     return get_instrs(new_func)
 
-def test_white():
+def test_if():
     def func():
-        while a:
-            break
+        if a == 1:
+            b()
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_white_a_and_b():
+def test_if_pass():
     def func():
-        while a and b:
-            break
+        if a == 1:
+            pass
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_white_with_if():
+def test_if_else_pass():
     def func():
-        while True:
-            if a:
-                break
-
-    assert get_instrs(func) == get_instrs_from_b2a(func)
-
-def test_for():
-    def func():
-        for z in []:
-            a = 1
-
-    assert get_instrs(func) == get_instrs_from_b2a(func)
-
-def test_for_else():
-    def func():
-        for z in []:
-            a = 1
+        if a == 1:
+            c()
         else:
-            a = 1
+            pass
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_for_unpack():
+def test_if_pass_else_pass():
     def func():
-        for a, b in []:
-            break
+        if a == 1:
+            pass
+        else:
+            pass
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_with():
+def test_if_not():
     def func():
-        with a:
-            r = 1
+        if not (__name__ == 'a'):
+            return 10
+        return None
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
-def test_with_multi():
+def test_if_complex():
     def func():
-        with a, b, c, d():
-            r = 1
-
-    assert get_instrs(func) == get_instrs_from_b2a(func)
-
-def test_with_var():
-    def func():
-        with a as b:
-            r = 1
-
-    assert get_instrs(func) == get_instrs_from_b2a(func)
-
-def test_with_var_multi():
-    def func():
-        with a as b, c() as d:
-            r = 1
+        if __name__ == 'a':
+            return 10
+        elif s + ds == 111:
+            if s and f:
+                return 1
+            else:
+                pass
+        return None
 
     assert get_instrs(func) == get_instrs_from_b2a(func)

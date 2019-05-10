@@ -5,8 +5,11 @@
 # some object for parser
 # ----------
 
+from typing import List
 import enum
 import dis
+from collections import defaultdict
+
 
 class ID:
     def __init__(self, name):
@@ -34,6 +37,7 @@ class CodeState:
         self._scope = scope
         self._state: dict = None if scope is Scope.NONE else {}
         self._blocks = [[]] # ensure has last block
+        self._instrs = [] # all handled instrs in this state
 
     def __repr__(self):
         return f'b({self._blocks!r}), l({self._load_stack!r})'
@@ -53,7 +57,18 @@ class CodeState:
         assert id not in self._state
         self._state[id] = value
 
-    #
+    # instrs
+
+    def add_instr(self, instr: dis.Instruction):
+        ''' add a handled instruction in this state '''
+        self._instrs.append(instr)
+
+    def get_instrs(self, key=None) -> List[dis.Instruction]:
+        ''' get all instructions by key from this state '''
+        if key is None:
+            return self._instrs.copy()
+        else:
+            return [i for i in self._instrs if i.opcode == key or i.opname == key]
 
     def copy(self):
         ''' copy a `CodeState` '''
@@ -145,6 +160,7 @@ class CodeReaderIter:
         for instr in self:
             handler = get_instr_handler(instr)
             handler(self._reader, state, instr)
+            state.add_instr(instr)
         return state
 
     def get_state(self, *, scope=Scope.NONE):

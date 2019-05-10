@@ -14,6 +14,9 @@ from .bases import (
     ID, Scope, CodeReader, CodeState,
     op, get_instr_handler
 )
+from .utils import (
+    ensure
+)
 
 CTX_LOAD = ast.Load()
 CTX_STORE = ast.Store()
@@ -385,6 +388,8 @@ def on_instr_jump_if_false_or_pop(reader: CodeReader, state: CodeState, instr: d
 
 @op('POP_JUMP_IF_FALSE', 114)
 def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    # `if ...` stmts
+
     node = ast.If(
         lineno=reader.get_lineno(),
         test=state.pop()
@@ -402,11 +407,22 @@ def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.
     else:
         ator = reader.read_until_offset(instr.argval)
 
-    node.body = ator.get_value(scope=state.scope)
+    body_state = ator.get_state(scope=state.scope)
+    node.body = ensure.body_not_empty(body_state.get_value(), node.lineno+1)
 
     else_instr = reader.pop_if(110) # JUMP_FORWARD
+    if else_instr is None:
+        # if else block is `pass`, then JUMP_FORWARD should already handled by body_state
+        jfs = body_state.get_instrs(110)
+        if jfs and jfs[-1].argval == instr.argval: # should has some target with POP_JUMP_IF_FALSE
+            else_instr = jfs[-1]
+
     if else_instr:
-        node.orelse = reader.read_until_offset(else_instr.argval).get_value()
+        orelse_lineno = reader.get_lineno()
+        node.orelse = ensure.body_not_empty(
+            reader.read_until_offset(else_instr.argval).get_value(),
+            lineno=orelse_lineno
+        )
     else:
         node.orelse = []
 
@@ -414,6 +430,35 @@ def on_instr_pop_jump_if_false(reader: CodeReader, state: CodeState, instr: dis.
     # we need to know offset of if-block
     # so we can check the condition belong which one
     node.jump_to = instr.argval
+
+    state.add_node(node)
+
+@op('POP_JUMP_IF_TRUE', 115)
+def on_instr_pop_jump_if_true(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    # possible start `assert` or `if ...` stmts
+
+    lineno = reader.get_lineno()
+    test = state.pop()
+    before_jump_body = reader.read_until_offset(instr.argval).get_value()
+
+    # if stmts
+    test = ast.UnaryOp(
+        lineno=test.lineno,
+        op=OP_NOT,
+        operand=test
+    )
+
+    node = ast.If(
+        lineno=lineno,
+        test=test,
+        body=before_jump_body
+    )
+
+    else_instr = reader.pop_if(110) # JUMP_FORWARD
+    if else_instr:
+        node.orelse = reader.read_until_offset(else_instr.argval).get_value()
+    else:
+        node.orelse = []
 
     state.add_node(node)
 
@@ -858,12 +903,6 @@ def on_instr_jump_forward(reader: CodeReader, state: CodeState, instr: dis.Instr
 
 @op('SETUP_EXCEPT', 121)
 def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instruction):
-    def body_not_empty(body: list, lineno: int):
-        # try body and except body can not be empty.
-        if not body:
-            body.append(ast.Pass(lineno=lineno))
-        return body
-
     lineno = reader.get_lineno()
 
     try_blocks = reader.read_until_offset(instr.argval).get_blocks(scope=Scope.EXCEPT)
@@ -872,7 +911,7 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
     # but for now we did not add any node from JUMP_FORWARD instr
     # so _ should be empty.
     assert not _
-    try_body = body_not_empty(try_body, reader.get_lineno())
+    try_body = ensure.body_not_empty(try_body, reader.get_lineno())
 
     # begin capture error handlers:
     handlers = []
@@ -918,7 +957,7 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
 
         reader.pop_assert(89) # POP_EXCEPT will update loneno
 
-        handler.body = body_not_empty(except_body, reader.get_lineno())
+        handler.body = ensure.body_not_empty(except_body, reader.get_lineno())
 
         jump_forward = reader.pop_assert(110) # JUMP_FORWARD
 
