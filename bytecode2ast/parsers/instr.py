@@ -994,14 +994,9 @@ def on_instr_setup_except(reader: CodeReader, state: CodeState, instr: dis.Instr
         lineno=lineno,
         body=try_body,
         handlers=handlers,
-        orelse=orelse_body
+        orelse=orelse_body,
+        finalbody=[]
     )
-
-    if state.scope == Scope.FINALLY:
-        node.finalbody = None # wait for parent set
-    else:
-        node.finalbody = []
-
     state.add_node(node)
 
 @op('SETUP_FINALLY', 122)
@@ -1021,29 +1016,13 @@ def on_instr_setup_finally(reader: CodeReader, state: CodeState, instr: dis.Inst
     finally_body = reader.read_until_opcodes(88).get_value(scope=Scope.FINALLY) # END_FINALLY
     reader.pop_assert(88) # END_FINALLY
 
-    def _is_try_block_reusable():
-        if len(try_block) != 1:
-            return False
-        maybe_try_node: ast.Try = try_block[0]
-        if not isinstance(maybe_try_node, ast.Try):
-            return False
-        # if finalbody is not None,
-        # that mean maybe_try_node already has one finally stmt
-        return maybe_try_node.finalbody is None
-
-    if _is_try_block_reusable():
-        node: ast.Try = try_block[0]
-        assert node.lineno == lineno
-        node.finalbody = finally_body
-
-    else:
-        node = ast.Try(
-            lineno=lineno,
-            body=try_block,
-            handlers=[],
-            orelse=[],
-            finalbody=finally_body,
-        )
+    node = ast.Try(
+        lineno=lineno,
+        body=try_block,
+        handlers=[],
+        orelse=[],
+        finalbody=finally_body,
+    )
 
     state.add_node(node)
 
