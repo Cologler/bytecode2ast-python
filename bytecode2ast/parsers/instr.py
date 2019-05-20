@@ -693,7 +693,7 @@ def _make_func_call(reader: CodeReader, state: CodeState, instr: dis.Instruction
     elif len(args) == 1 and isinstance(args[0], ast.FunctionDef):
         # this is decorator
         func_def: ast.FunctionDef = args[0]
-        func_def.decorator_list.append(func)
+        func_def.decorator_list.insert(0, func)
         node = func_def
 
     else:

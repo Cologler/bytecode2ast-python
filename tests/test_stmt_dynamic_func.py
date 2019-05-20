@@ -16,7 +16,17 @@ def test_func_dynamic_def():
 
 def test_func_dynamic_def_with_decorator():
     def func():
-        @some
+        @some1
+        @some2
+        def f():
+            pass
+
+    assert_example(func)
+
+def test_func_dynamic_def_with_decorator_with_arguments():
+    def func():
+        @some(a, 1)
+        @fdsf()
         def f():
             pass
 

@@ -55,25 +55,3 @@ def test_call_func_generic_args_unpack():
         iter(*a, **b)
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
-
-def test_func_dynamic_def():
-    def func():
-        def f():
-            pass
-
-    # TODO: unable to test eq ?
-    get_instrs_from_b2a(func)
-
-def test_simple_lambda():
-    def func():
-        func = lambda: {"x": 4}
-
-    # TODO: unable to test eq ?
-    get_instrs_from_b2a(func)
-
-def test_0001():
-    def func():
-	    f = lambda: (lambda: 4).__call__()
-
-    # TODO: unable to test eq ?
-    get_instrs_from_b2a(func)
