@@ -30,8 +30,20 @@ def test_raise_type():
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
 
+def test_raise_type_from_none():
+    def func():
+        raise TypeError from None
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
 def test_raise_instance():
     def func():
         raise TypeError(1)
+
+    assert get_instrs(func) == get_instrs_from_b2a(func)
+
+def test_raise_instance_from_none():
+    def func():
+        raise TypeError(1) from None
 
     assert get_instrs(func) == get_instrs_from_b2a(func)
