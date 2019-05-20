@@ -74,3 +74,14 @@ class tests:
 
         value = items[0]
         return all(x == value for x in items[1:])
+
+    @staticmethod
+    def endswith_return_none(body: list) -> bool:
+        ''' test whether body stmt endswith `return None` '''
+        if body:
+            block = body[-1]
+            if isinstance(block, ast.Return):
+                if isinstance(block.value, ast.NameConstant):
+                    if block.value.value is None:
+                        return True
+        return False

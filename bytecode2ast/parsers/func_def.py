@@ -9,7 +9,7 @@ import dis
 import ast
 import inspect
 
-from .instr import CodeReader, CodeState
+from .instr import CodeReader
 from .utils import reduce_as_pass
 
 def _is_lambda(code):

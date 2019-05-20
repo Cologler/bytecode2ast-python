@@ -43,6 +43,8 @@ OP_INVERT = ast.Invert()
 ID_PADDING = ID('padding')
 ID_FOR_ITER = ID('for_iter')
 ID_POP_BLOCK = ID('pop_block')
+ID_BUILD_CLASS = ID('build_class') # replacement for `builtins.__build_class__()`
+
 
 def load(node):
     ''' set `node.ctx` to `ast.Load` and return it '''
@@ -584,6 +586,7 @@ def on_instr_setup_loop(reader: CodeReader, state: CodeState, instr: dis.Instruc
 
     state.add_node(node)
 
+@op('LOAD_NAME', 101)
 @op('LOAD_GLOBAL', 116)
 @op('LOAD_FAST', 124)
 def on_instr_load(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -591,6 +594,7 @@ def on_instr_load(reader: CodeReader, state: CodeState, instr: dis.Instruction):
         load(ast.Name(id=instr.argval, lineno=reader.get_lineno()))
     )
 
+@op('STORE_NAME', 90)
 @op('STORE_FAST', 125)
 def on_instr_store(reader: CodeReader, state: CodeState, instr: dis.Instruction):
     if state.scope == Scope.LOOP and state.state.get(ID_FOR_ITER) is ID_PADDING:
@@ -656,14 +660,51 @@ def on_instr_jump_absolute(reader: CodeReader, state: CodeState, instr: dis.Inst
 
 def _make_func_call(reader: CodeReader, state: CodeState, instr: dis.Instruction, args, kwargs):
     func = state.pop()
-    state.push(
-        ast.Call(
+
+    if func is ID_BUILD_CLASS:
+        assert len(args) == 2 and len(kwargs) == 0
+        func_def: ast.FunctionDef = args[0]
+        name: str = args[1].s # args[1] is `ast.Str`
+        body = func_def.body
+
+        # first is assign `__module__`
+        # second is assign `__qualname__`
+        # ignore them
+        body = body[2:]
+
+        # end of body always be `return None`, however compile does not allow that.
+        # remove it fixes compile error
+        if tests.endswith_return_none(body):
+            last = body[-1]
+            body = body[:-1]
+        if not body:
+            # empty
+            body.append(ast.Pass(lineno=last.lineno))
+
+        node = ast.ClassDef(
+            lineno=reader.get_lineno(),
+            name=name,
+            bases=[],
+            keywords=kwargs,
+            body=body,
+            decorator_list=func_def.decorator_list
+        )
+
+    elif len(args) == 1 and isinstance(args[0], ast.FunctionDef):
+        # this is decorator
+        func_def: ast.FunctionDef = args[0]
+        func_def.decorator_list.append(func)
+        node = func_def
+
+    else:
+        node = ast.Call(
             lineno=reader.get_lineno(),
             func=func,
             args=args,
             keywords=kwargs
         )
-    )
+
+    state.push(node)
 
 @op('CALL_FUNCTION', 131)
 def on_instr_call_function(reader: CodeReader, state: CodeState, instr: dis.Instruction):
@@ -1047,3 +1088,16 @@ def on_instr_raise_varargs(reader: CodeReader, state: CodeState, instr: dis.Inst
         cause=cause,
     )
     state.add_node(node)
+
+@op('LOAD_BUILD_CLASS', 71)
+def on_instr_load_build_class(reader: CodeReader, state: CodeState, instr: dis.Instruction):
+    from .class_def import from_code
+
+    state.push(ID_BUILD_CLASS)
+
+    return
+
+    code_instr = reader.pop_assert(100) # LOAD_CONST
+    class_def = from_code(code_instr.argval)
+
+    raise NotImplementedError
