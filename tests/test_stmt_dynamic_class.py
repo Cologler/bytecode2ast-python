@@ -24,4 +24,17 @@ def test_build_class_with_methods():
                 pass
 
     assert_example(func)
-    
+
+def test_build_class_with_metaclass():
+    def func():
+        class A(metaclass=type):
+            pass
+
+    assert_example(func)
+
+def test_build_class_with_bases():
+    def func():
+        class A(C, D, E):
+            pass
+
+    assert_example(func)

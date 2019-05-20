@@ -662,9 +662,10 @@ def _make_func_call(reader: CodeReader, state: CodeState, instr: dis.Instruction
     func = state.pop()
 
     if func is ID_BUILD_CLASS:
-        assert len(args) == 2 and len(kwargs) == 0
         func_def: ast.FunctionDef = args[0]
         name: str = args[1].s # args[1] is `ast.Str`
+        bases = args[2:]
+
         body = func_def.body
 
         # first is assign `__module__`
@@ -684,8 +685,8 @@ def _make_func_call(reader: CodeReader, state: CodeState, instr: dis.Instruction
         node = ast.ClassDef(
             lineno=reader.get_lineno(),
             name=name,
-            bases=[],
-            keywords=kwargs,
+            bases=bases,
+            keywords=kwargs, # metaclass here
             body=body,
             decorator_list=func_def.decorator_list
         )
